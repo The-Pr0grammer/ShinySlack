@@ -1,0 +1,87 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ShinySlack</title>
+<style>
+:root{color-scheme:dark;--bg:#090b11;--card:#121622;--card2:#0e121c;--text:#f5f7fb;--muted:#9aa6b7;--line:#252c3a;--cyan:#55d9ff;--pink:#ff5bc8;--good:#54e39a;--warn:#ffd166;--bad:#ff6b7a}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 20% 0%,#17223d 0,transparent 34%),radial-gradient(circle at 95% 20%,#351531 0,transparent 32%),var(--bg);font-family:Inter,Segoe UI,system-ui,sans-serif;color:var(--text);min-height:100vh}.wrap{width:min(980px,calc(100% - 32px));margin:0 auto;padding:48px 0 64px}.brand{display:flex;align-items:center;gap:14px;margin-bottom:8px}.logo{width:48px;height:48px;border-radius:14px;background:linear-gradient(135deg,var(--cyan),var(--pink));display:grid;place-items:center;font-size:25px;box-shadow:0 0 32px #55d9ff35}.brand h1{font-size:32px;margin:0;letter-spacing:-1px}.tag{color:var(--muted);font-size:16px;margin:0 0 30px}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}.stat{background:#10141eaa;border:1px solid var(--line);border-radius:16px;padding:15px 16px;backdrop-filter:blur(12px)}.stat .k{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:8px}.stat .v{font-size:15px;font-weight:700}.good{color:var(--good)}.warn{color:var(--warn)}.bad{color:var(--bad)}.card{background:linear-gradient(180deg,#131824e8,#0e121be8);border:1px solid var(--line);border-radius:22px;padding:24px;box-shadow:0 18px 50px #0006;margin-bottom:18px}.card h2{margin:0 0 8px;font-size:20px}.sub{color:var(--muted);font-size:14px;line-height:1.55}.drop{margin-top:18px;border:1.5px dashed #3a455a;border-radius:18px;padding:32px;text-align:center;background:#0b0f17;transition:.2s;cursor:pointer}.drop.drag{border-color:var(--cyan);background:#0d1721;box-shadow:inset 0 0 30px #55d9ff12}.drop strong{display:block;font-size:17px;margin-bottom:7px}.drop span{color:var(--muted);font-size:13px}.fileRow{display:none;align-items:center;gap:12px;margin-top:16px;padding:12px 14px;border-radius:14px;background:#0b0f17;border:1px solid var(--line)}.fileRow.show{display:flex}.fileMeta{min-width:0;flex:1}.fileName{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.fileSize{font-size:12px;color:var(--muted);margin-top:3px}audio{width:220px;height:34px}.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}button{border:1px solid var(--line);border-radius:12px;background:#161c28;color:var(--text);padding:11px 15px;font-weight:700;cursor:pointer;transition:.15s}button:hover{transform:translateY(-1px);border-color:#46526a}button.primary{border:0;background:linear-gradient(135deg,var(--cyan),var(--pink));color:#071018;padding:12px 20px}button:disabled{opacity:.45;cursor:not-allowed;transform:none}.notice{margin-top:16px;padding:13px 14px;border-radius:13px;background:#191710;border:1px solid #4a4021;color:#f4d987;font-size:13px;line-height:1.5}.result{display:none;margin-top:15px;padding:13px 14px;border-radius:13px;white-space:pre-wrap;font-family:Consolas,monospace;font-size:12px;max-height:220px;overflow:auto}.result.show{display:block}.result.ok{background:#0d1d17;border:1px solid #1d5b3b;color:#baf3d3}.result.err{background:#221015;border:1px solid #6b2631;color:#ffc1c8}.log{background:#080b11;border:1px solid var(--line);border-radius:14px;padding:14px;min-height:140px;max-height:280px;overflow:auto;font:12px/1.55 Consolas,monospace;color:#bac5d5;white-space:pre-wrap}.footer{color:#687489;font-size:12px;text-align:center;margin-top:22px}.tiny{font-size:12px;color:var(--muted)}
+@media(max-width:760px){.grid{grid-template-columns:1fr 1fr}.fileRow{align-items:flex-start;flex-direction:column}audio{width:100%}}@media(max-width:460px){.grid{grid-template-columns:1fr}.wrap{width:min(100% - 20px,980px);padding-top:24px}.card{padding:18px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand"><div class="logo">S</div><h1>ShinySlack</h1><span style="font:12px Consolas,monospace;color:#55d9ff;border:1px solid #2d5363;border-radius:999px;padding:4px 8px">BUILD V16</span></div>
+  <p class="tag">Your Slack. Your sound. Local-only Windows patcher.</p>
+
+  <div class="grid">
+    <div class="stat"><div class="k">Slack</div><div id="slack" class="v">Checking...</div></div>
+    <div class="stat"><div class="k">Cache</div><div id="cache" class="v">Checking...</div></div>
+    <div class="stat"><div class="k">Sound</div><div id="health" class="v">Checking...</div></div>
+    <div class="stat"><div class="k">Watcher</div><div id="watcher" class="v">Checking...</div></div>
+  </div>
+
+  <section class="card">
+    <h2>Choose a notification sound</h2>
+    <div class="sub">Drop in an MP3. ShinySlack will install itself on first use, compress the sound only if necessary, locate Slack's exact Knock Brush cache body by SHA-256, back it up, patch it, verify it, and keep repairing it after cache rebuilds.</div>
+    <input id="file" type="file" accept="audio/mpeg,.mp3" hidden>
+    <div id="drop" class="drop"><strong>Drop an MP3 here</strong><span>or click to browse - 5 MB max</span></div>
+    <div id="fileRow" class="fileRow"><div class="fileMeta"><div id="fileName" class="fileName"></div><div id="fileSize" class="fileSize"></div></div><audio id="preview" controls></audio></div>
+    <div class="notice"><b>Before first install, or after Slack clears/rebuilds its cache:</b> select <b>Knock Brush</b> in Slack and receive one <b>real incoming notification</b>. "Show an example" is not a reliable priming/test path.</div>
+    <div class="actions"><button id="apply" class="primary" disabled>Apply Sound</button><button id="repair">Repair Now</button><button id="refresh">Refresh Status</button></div>
+    <div id="result" class="result"></div>
+  </section>
+
+  <section class="card">
+    <h2>Activity</h2>
+    <div class="sub">Live watcher heartbeat, newest events first. Every periodic check is logged. SLA-safe mode never force-closes a running Slack session; deep hash verification/automatic repair happens when Slack is already closed, or Repair Now performs an intentional controlled restart.</div>
+    <div id="log" class="log" style="margin-top:14px">No log yet.</div>
+    <div class="actions"><button id="shutdown">Close ShinySlack Website</button><button id="uninstall">Uninstall ShinySlack</button></div>
+  </section>
+  <div class="footer">Runs only on 127.0.0.1. The selected audio stays on this PC.</div>
+</div>
+<script>
+const TOKEN='__TOKEN__';
+let selected=null, previewUrl=null;
+const $=id=>document.getElementById(id);
+function cls(el,state){el.className='v '+state}
+async function api(path,options={}){const ctl=new AbortController();const timer=setTimeout(()=>ctl.abort(),12000);options.headers={...(options.headers||{}),'X-ShinySlack-Token':TOKEN};options.signal=ctl.signal;try{const r=await fetch(path,options);const t=await r.text();let j;try{j=JSON.parse(t)}catch{throw new Error(t||('HTTP '+r.status))}if(!r.ok||j.ok===false)throw new Error(j.error||j.output||'Request failed');return j}catch(e){if(e.name==='AbortError')throw new Error('Local ShinySlack API timed out after 12s. Check web-trace.log.');throw e}finally{clearTimeout(timer)}}
+async function status(){
+  try{
+    const s=await api('/api/status');
+    if(s.build && s.build!=='V16'){show(false,'Backend/UI build mismatch: '+s.build+' is serving this page. Restart ShinySlack V16.');}
+    $('slack').textContent=s.slackRunning?'Running':'Closed'; cls($('slack'),s.slackRunning?'good':'warn');
+    $('cache').textContent=s.cachePresent?'Present':'Missing'; cls($('cache'),s.cachePresent?'good':'bad');
+    const soundText = s.health==='Custom'?'Custom verified':(s.health==='ConfiguredDeferred'?'Custom configured':(s.health==='Deferred'?'Check deferred':s.health));
+    $('health').textContent=s.installed?soundText:'Not installed';
+    cls($('health'),(s.health==='Custom'||s.health==='ConfiguredDeferred')?'good':((s.health==='Stock'||s.health==='Deferred')?'warn':'bad'));
+    $('watcher').textContent=s.installed?(s.watcherRunning?'Watching':'Not watching'):'Not installed'; cls($('watcher'),s.watcherRunning?'good':'warn'); $('watcher').title=s.watcherDetail||'';
+    $('log').textContent=s.log||'No log yet.';
+  }catch(e){show(false,e.message)}
+}
+function show(ok,msg){const r=$('result');r.className='result show '+(ok?'ok':'err');r.textContent=msg}
+function pick(f){if(!f)return;if(!/\.mp3$/i.test(f.name)){show(false,'Please choose an MP3 file.');return}if(f.size>5*1024*1024){show(false,'MP3 is larger than 5 MB. Trim it first.');return}selected=f;$('fileName').textContent=f.name;$('fileSize').textContent=(f.size/1024).toFixed(1)+' KB';$('fileRow').classList.add('show');$('apply').disabled=false;if(previewUrl)URL.revokeObjectURL(previewUrl);previewUrl=URL.createObjectURL(f);$('preview').src=previewUrl}
+async function waitOperation(id,label){
+  const started=Date.now();
+  while(true){
+    const op=await api('/api/op/'+id);
+    const elapsed=Math.floor((Date.now()-started)/1000);
+    const detail=op.output?('\n\n'+op.output):'';
+    if(op.status==='done'){show(true,(op.output||label+' complete.')+'\n\nTest with a REAL incoming Slack notification.');await status();return op}
+    if(op.status==='error'){throw new Error((op.error||label+' failed.')+detail)}
+    show(true,label+'... '+elapsed+'s'+detail);
+    await new Promise(r=>setTimeout(r,1000));
+  }
+}
+$('drop').onclick=()=>$('file').click();$('file').onchange=e=>pick(e.target.files[0]);
+for(const ev of ['dragenter','dragover'])$('drop').addEventListener(ev,e=>{e.preventDefault();$('drop').classList.add('drag')});for(const ev of ['dragleave','drop'])$('drop').addEventListener(ev,e=>{$('drop').classList.remove('drag');e.preventDefault()});$('drop').addEventListener('drop',e=>pick(e.dataTransfer.files[0]));
+$('apply').onclick=async()=>{if(!selected)return;$('apply').disabled=true;show(true,'Uploading MP3...');try{const b64=await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result.split(',')[1]);fr.onerror=rej;fr.readAsDataURL(selected)});const j=await api('/api/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fileName:selected.name,dataBase64:b64})});await waitOperation(j.operationId,'Applying sound')}catch(e){show(false,e.message)}finally{$('apply').disabled=false}};
+$('repair').onclick=async()=>{try{const j=await api('/api/repair',{method:'POST'});await waitOperation(j.operationId,'Repairing ShinySlack')}catch(e){show(false,e.message)}};
+$('refresh').onclick=status;
+$('uninstall').onclick=async()=>{if(!confirm('Remove the ShinySlack watcher and local app files? Slack itself will not be uninstalled.'))return;try{const j=await api('/api/uninstall',{method:'POST'});await waitOperation(j.operationId,'Uninstalling ShinySlack')}catch(e){show(false,e.message)}};
+$('shutdown').onclick=async()=>{try{await api('/api/shutdown',{method:'POST'});document.body.innerHTML='<div style="font-family:Segoe UI;background:#090b11;color:white;height:100vh;display:grid;place-items:center"><div><h1>SHINY ShinySlack closed</h1><p>You can close this tab.</p></div></div>'}catch(e){show(false,e.message)}};
+status();setInterval(status,5000);
+</script>
+</body>
+</html>

@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="ShinySlack lets you use your own MP3 as a Slack notification sound on Windows.">
+  <title>ShinySlack — Your Slack. Your sound.</title>
+  <style>
+    :root{--bg:#070b14;--panel:#101725;--line:#243149;--text:#f4f7ff;--muted:#a9bad3;--cyan:#55d9ff;--pink:#d84a9a;--green:#43f59a;--yellow:#ffd66b}
+    *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:radial-gradient(circle at 82% 10%,#291029 0,transparent 31%),radial-gradient(circle at 15% 0,#122743 0,transparent 35%),var(--bg);color:var(--text);font:16px/1.55 Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}
+    a{color:inherit}.wrap{width:min(1120px,calc(100% - 36px));margin:auto}.nav{display:flex;align-items:center;justify-content:space-between;padding:24px 0}.brand{display:flex;align-items:center;gap:12px;font-weight:800;font-size:22px}.logo{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;font-size:22px;background:linear-gradient(135deg,var(--cyan),#a071e8 48%,var(--pink));box-shadow:0 10px 35px #6d4dc733}.nav small{color:var(--muted)}
+    .hero{display:grid;grid-template-columns:1.02fr .98fr;gap:54px;align-items:center;padding:70px 0 50px}.eyebrow{display:inline-flex;border:1px solid #2b4857;color:var(--cyan);border-radius:999px;padding:5px 10px;font:12px ui-monospace,Consolas,monospace;letter-spacing:.08em}.hero h1{font-size:clamp(48px,7vw,82px);line-height:.96;letter-spacing:-.055em;margin:22px 0 20px}.gradient{background:linear-gradient(90deg,#7fe3ff,#aa8ef3 48%,#ee6bb6);color:transparent;background-clip:text}.lead{font-size:19px;color:var(--muted);max-width:650px}.buttons{display:flex;gap:12px;flex-wrap:wrap;margin-top:30px}.btn{display:inline-flex;align-items:center;justify-content:center;padding:14px 20px;border-radius:12px;text-decoration:none;font-weight:800;border:1px solid var(--line)}.primary{background:linear-gradient(100deg,#55cafa,#d84a9a);color:#07111a;border:0}.secondary{background:#111826}.tiny{margin-top:13px;color:#8093ae;font-size:13px}.preview{background:#0e1420;border:1px solid #273247;border-radius:20px;padding:12px;box-shadow:0 28px 90px #0008;overflow:hidden}.preview img{width:100%;display:block;border-radius:12px}
+    .status{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:25px 0 80px}.pill{background:#101725;border:1px solid #26324a;border-radius:14px;padding:16px}.pill span{display:block;font:11px ui-monospace,monospace;color:#8698b3;text-transform:uppercase;letter-spacing:.08em}.pill strong{display:block;color:var(--green);margin-top:6px}
+    section{padding:42px 0}.section-title{font-size:36px;letter-spacing:-.03em;margin:0 0 12px}.sub{color:var(--muted);max-width:760px}.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:26px}.card{background:#101725;border:1px solid #26324a;border-radius:17px;padding:24px}.num{font:12px ui-monospace,monospace;color:var(--cyan)}.card h3{margin:9px 0}.card p{color:var(--muted);margin-bottom:0}.features{display:grid;grid-template-columns:repeat(2,1fr);gap:15px;margin-top:24px}.feature{border:1px solid #26324a;border-radius:15px;padding:18px;background:#0d1420}.feature b{color:#fff}.feature p{margin:5px 0 0;color:var(--muted)}.notice{margin:50px 0;background:#17150d;border:1px solid #554619;border-radius:15px;padding:18px;color:#e9dcae}.footer{border-top:1px solid #1e293c;margin-top:50px;padding:32px 0 55px;color:#8093ae;font-size:13px;display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
+    @media(max-width:820px){.hero{grid-template-columns:1fr;padding-top:35px}.preview{order:2}.status,.steps,.features{grid-template-columns:1fr 1fr}.hero h1{font-size:58px}}
+    @media(max-width:540px){.status,.steps,.features{grid-template-columns:1fr}.nav small{display:none}.hero{gap:30px}.hero h1{font-size:48px}.btn{width:100%}}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <nav class="nav"><div class="brand"><div class="logo">S</div>ShinySlack</div><small>Windows beta · local-only</small></nav>
+
+  <main class="hero">
+    <div>
+      <span class="eyebrow">CUSTOM SLACK NOTIFICATIONS</span>
+      <h1>Your Slack.<br><span class="gradient">Your sound.</span></h1>
+      <p class="lead">Drop in an MP3 and ShinySlack patches Slack’s Windows notification cache locally, verifies the result, and keeps watching for cache rebuilds.</p>
+      <div class="buttons">
+        <a id="download" class="btn primary" href="#">Download for Windows</a>
+        <a id="source" class="btn secondary" href="#">View source</a>
+      </div>
+      <div class="tiny">No Slack credentials. No cloud upload. Your MP3 stays on your PC.</div>
+    </div>
+    <div class="preview"><img src="app-preview.png" alt="ShinySlack Windows interface with healthy status cards"></div>
+  </main>
+
+  <div class="status">
+    <div class="pill"><span>Slack</span><strong>Running</strong></div>
+    <div class="pill"><span>Cache</span><strong>Present</strong></div>
+    <div class="pill"><span>Sound</span><strong>Custom configured</strong></div>
+    <div class="pill"><span>Watcher</span><strong>Watching</strong></div>
+  </div>
+
+  <section>
+    <h2 class="section-title">Three steps. That’s it.</h2>
+    <p class="sub">ShinySlack is intentionally small. It installs per-user and opens its local dashboard in your browser.</p>
+    <div class="steps">
+      <div class="card"><span class="num">01</span><h3>Install</h3><p>Download and run ShinySlackSetup.exe. No admin install is required by default.</p></div>
+      <div class="card"><span class="num">02</span><h3>Prime Slack</h3><p>Select Knock Brush in Slack and receive one real notification so Slack creates its cache entry.</p></div>
+      <div class="card"><span class="num">03</span><h3>Drop your MP3</h3><p>Open ShinySlack, choose a sound, hit Apply Sound, and test with a real Slack notification.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="section-title">Built to fail closed.</h2>
+    <p class="sub">ShinySlack does not blindly write into Chromium cache files. It verifies known payloads before patching and leaves unfamiliar cache state alone.</p>
+    <div class="features">
+      <div class="feature"><b>Local-only</b><p>The web-looking UI runs on 127.0.0.1. Your sound does not get uploaded to a ShinySlack server.</p></div>
+      <div class="feature"><b>SHA-256 verified</b><p>The patch flow locates and verifies the exact stock/custom sound payload before cache writes.</p></div>
+      <div class="feature"><b>Self-healing watcher</b><p>The watcher checks periodically and repairs stock sound when Slack is safely closed.</p></div>
+      <div class="feature"><b>SLA-safe behavior</b><p>The watcher does not force-close an active Slack session during routine checks.</p></div>
+    </div>
+  </section>
+
+  <div class="notice"><b>Beta:</b> ShinySlack is an unofficial Slack customization and modifies local application cache data. Slack updates can change cache behavior. Use it only where your device/workplace software policy allows it.</div>
+
+  <footer class="footer"><span>ShinySlack · unofficial Windows utility</span><span id="releaseText">Latest installer via GitHub Releases</span></footer>
+</div>
+<script src="config.js"></script>
+<script>
+(function(){
+  const cfg=window.SHINYSLACK_CONFIG||{};
+  const owner=cfg.owner||'OWNER'; const repo=cfg.repo||'ShinySlack';
+  const repoUrl=`https://github.com/${owner}/${repo}`;
+  document.getElementById('download').href=`${repoUrl}/releases/latest/download/ShinySlackSetup.exe`;
+  document.getElementById('source').href=repoUrl;
+})();
+</script>
+</body>
+</html>
