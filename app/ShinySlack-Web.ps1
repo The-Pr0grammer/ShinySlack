@@ -284,7 +284,7 @@ function Get-StatusObject {
     [pscustomobject]@{
         ok=$true; build=$script:Build; installed=$installed; slackRunning=$slackRunning;
         cachePresent=$cachePresent; health=$health; watcherRunning=$watcher; watcherDetail=$watcherDetail;
-        ffmpeg=$ffmpeg; log=$log; agentBuild=$agentBuild
+        ffmpeg=$ffmpeg; log=$log; agentBuild=$agentBuild; channelAudio=(Get-ChannelAudioStatus)
     }
 }
 function Persist-WebFiles {
@@ -315,9 +315,405 @@ function Get-OperationObject {
     [pscustomobject]@{ok=$true;status=$s.status;exitCode=$s.exitCode;error=$s.error;output=$out}
 }
 
+
+function Get-ChannelAudioStatus {
+    $configPath = Join-Path $script:Root 'channel-routes.json'
+    $routerLog  = Join-Path $script:Root 'channel-router.log'
+
+    $routerRunning = $false
+    $enabled = $true
+    $defaultSound = ''
+    $routes = @()
+    $lastDetected = ''
+
+    try {
+        $procs = @(
+            Get-CimInstance Win32_Process `
+                -Filter "Name='powershell.exe'" `
+                -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.CommandLine -and
+                $_.CommandLine -match 'ChannelRouter\.ps1'
+            }
+        )
+
+        $routerRunning = ($procs.Count -gt 0)
+    }
+    catch {}
+
+    if(Test-Path $configPath) {
+        try {
+            $cfg = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 |
+                ConvertFrom-Json
+
+            if($null -ne $cfg.enabled) {
+                $enabled = [bool]$cfg.enabled
+            }
+
+            if($cfg.defaultSound) {
+                $defaultSound = Split-Path -Leaf ([string]$cfg.defaultSound)
+            }
+
+            if($null -ne $cfg.routes) {
+                foreach($p in $cfg.routes.PSObject.Properties) {
+                    $routes += [pscustomobject]@{
+                        channel = [string]$p.Name
+                        sound   = Split-Path -Leaf ([string]$p.Value)
+                    }
+                }
+
+                $routes = @($routes | Sort-Object channel)
+            }
+        }
+        catch {}
+    }
+
+    if(Test-Path $routerLog) {
+        try {
+            $lines = @(Get-Content -LiteralPath $routerLog -Tail 100 -Encoding UTF8)
+
+            for($i = $lines.Count - 1; $i -ge 0; $i--) {
+                if($lines[$i] -match 'channel=#([^\s]+)') {
+                    $lastDetected = '#' + $matches[1]
+                    break
+                }
+
+                if($lines[$i] -match 'channel=unknown') {
+                    $lastDetected = '[notification without channel]'
+                    break
+                }
+            }
+        }
+        catch {}
+    }
+
+    [pscustomobject]@{
+        routerRunning = $routerRunning
+        enabled       = $enabled
+        defaultSound  = $defaultSound
+        routes        = @($routes)
+        lastDetected  = $lastDetected
+    }
+}
+
+
+function Read-ChannelRoutesConfig {
+    $configPath = Join-Path $script:Root 'channel-routes.json'
+
+    $routes = @{}
+    $enabled = $true
+    $volume = 1.0
+    $defaultSound = $null
+
+    if(Test-Path $configPath) {
+        try {
+            $cfg = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 |
+                ConvertFrom-Json
+
+            if($null -ne $cfg.enabled) {
+                $enabled = [bool]$cfg.enabled
+            }
+
+            if($null -ne $cfg.volume) {
+                $volume = [double]$cfg.volume
+            }
+
+            if($null -ne $cfg.defaultSound) {
+                $defaultSound = [string]$cfg.defaultSound
+            }
+
+            if($null -ne $cfg.routes) {
+                foreach($p in $cfg.routes.PSObject.Properties) {
+                    $routes[[string]$p.Name] = [string]$p.Value
+                }
+            }
+        }
+        catch {
+            throw "Could not read channel-routes.json: $($_.Exception.Message)"
+        }
+    }
+
+    [pscustomobject]@{
+        enabled = $enabled
+        volume = $volume
+        defaultSound = $defaultSound
+        routes = $routes
+    }
+}
+
+function Write-ChannelRoutesConfig {
+    param($Config)
+
+    $configPath = Join-Path $script:Root 'channel-routes.json'
+    $tempPath = $configPath + '.tmp'
+
+    $object = [ordered]@{
+        version = 3
+        enabled = [bool]$Config.enabled
+        volume = [double]$Config.volume
+        defaultSound = $Config.defaultSound
+        routes = $Config.routes
+    }
+
+    $object |
+        ConvertTo-Json -Depth 8 |
+        Set-Content -LiteralPath $tempPath -Encoding UTF8
+
+    Move-Item `
+        -LiteralPath $tempPath `
+        -Destination $configPath `
+        -Force
+}
+
+function Save-ChannelAudioUpload {
+    param(
+        [string]$FileName,
+        [string]$DataBase64,
+        [string]$Prefix
+    )
+
+    if([string]::IsNullOrWhiteSpace($DataBase64)) {
+        throw 'No MP3 was received.'
+    }
+
+    $name = [IO.Path]::GetFileName($FileName)
+
+    if($name -notmatch '\.mp3$') {
+        throw 'Only MP3 files are accepted.'
+    }
+
+    try {
+        $bytes = [Convert]::FromBase64String($DataBase64)
+    }
+    catch {
+        throw 'Uploaded audio was not valid base64.'
+    }
+
+    if($bytes.Length -gt 5MB) {
+        throw 'MP3 exceeds 5 MB.'
+    }
+
+    $soundDir = Join-Path $script:Root 'channel-sounds'
+
+    New-Item `
+        -ItemType Directory `
+        -Path $soundDir `
+        -Force |
+        Out-Null
+
+    $safeName = $name -replace '[^A-Za-z0-9._ -]','_'
+    $safePrefix = $Prefix -replace '[^A-Za-z0-9._-]','_'
+
+    $destination = Join-Path `
+        $soundDir `
+        ("{0}__{1}" -f $safePrefix,$safeName)
+
+    [IO.File]::WriteAllBytes($destination,$bytes)
+
+    return $destination
+}
+
 $listener=$null
 try {
-    for($p=$Port;$p -lt ($Port+20);$p++){try{$listener=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,$p);$listener.Start();$Port=$p;break}catch{$listener=$null}}
+    for($p=$Port;$p -lt ($Port+20);$p++){try{$listener=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,$p);$listener.Start();$Port=$p;break}catch{
+function Get-ChannelAudioStatus {
+    $configPath = Join-Path $script:Root 'channel-routes.json'
+    $routerLog  = Join-Path $script:Root 'channel-router.log'
+
+    $routerRunning = $false
+    $enabled = $true
+    $defaultSound = ''
+    $routes = @()
+    $lastDetected = ''
+
+    try {
+        $procs = @(
+            Get-CimInstance Win32_Process `
+                -Filter "Name='powershell.exe'" `
+                -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.CommandLine -and
+                $_.CommandLine -match 'ChannelRouter\.ps1'
+            }
+        )
+
+        $routerRunning = ($procs.Count -gt 0)
+    }
+    catch {}
+
+    if(Test-Path $configPath) {
+        try {
+            $cfg = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 |
+                ConvertFrom-Json
+
+            if($null -ne $cfg.enabled) {
+                $enabled = [bool]$cfg.enabled
+            }
+
+            if($cfg.defaultSound) {
+                $defaultSound = Split-Path -Leaf ([string]$cfg.defaultSound)
+            }
+
+            if($null -ne $cfg.routes) {
+                foreach($p in $cfg.routes.PSObject.Properties) {
+                    $routes += [pscustomobject]@{
+                        channel = [string]$p.Name
+                        sound   = Split-Path -Leaf ([string]$p.Value)
+                    }
+                }
+
+                $routes = @($routes | Sort-Object channel)
+            }
+        }
+        catch {}
+    }
+
+    if(Test-Path $routerLog) {
+        try {
+            $lines = @(Get-Content -LiteralPath $routerLog -Tail 100 -Encoding UTF8)
+
+            for($i = $lines.Count - 1; $i -ge 0; $i--) {
+                if($lines[$i] -match 'channel=#([^\s]+)') {
+                    $lastDetected = '#' + $matches[1]
+                    break
+                }
+
+                if($lines[$i] -match 'channel=unknown') {
+                    $lastDetected = '[notification without channel]'
+                    break
+                }
+            }
+        }
+        catch {}
+    }
+
+    [pscustomobject]@{
+        routerRunning = $routerRunning
+        enabled       = $enabled
+        defaultSound  = $defaultSound
+        routes        = @($routes)
+        lastDetected  = $lastDetected
+    }
+}
+
+
+function Read-ChannelRoutesConfig {
+    $configPath = Join-Path $script:Root 'channel-routes.json'
+
+    $routes = @{}
+    $enabled = $true
+    $volume = 1.0
+    $defaultSound = $null
+
+    if(Test-Path $configPath) {
+        try {
+            $cfg = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 |
+                ConvertFrom-Json
+
+            if($null -ne $cfg.enabled) {
+                $enabled = [bool]$cfg.enabled
+            }
+
+            if($null -ne $cfg.volume) {
+                $volume = [double]$cfg.volume
+            }
+
+            if($null -ne $cfg.defaultSound) {
+                $defaultSound = [string]$cfg.defaultSound
+            }
+
+            if($null -ne $cfg.routes) {
+                foreach($p in $cfg.routes.PSObject.Properties) {
+                    $routes[[string]$p.Name] = [string]$p.Value
+                }
+            }
+        }
+        catch {
+            throw "Could not read channel-routes.json: $($_.Exception.Message)"
+        }
+    }
+
+    [pscustomobject]@{
+        enabled = $enabled
+        volume = $volume
+        defaultSound = $defaultSound
+        routes = $routes
+    }
+}
+
+function Write-ChannelRoutesConfig {
+    param($Config)
+
+    $configPath = Join-Path $script:Root 'channel-routes.json'
+    $tempPath = $configPath + '.tmp'
+
+    $object = [ordered]@{
+        version = 3
+        enabled = [bool]$Config.enabled
+        volume = [double]$Config.volume
+        defaultSound = $Config.defaultSound
+        routes = $Config.routes
+    }
+
+    $object |
+        ConvertTo-Json -Depth 8 |
+        Set-Content -LiteralPath $tempPath -Encoding UTF8
+
+    Move-Item `
+        -LiteralPath $tempPath `
+        -Destination $configPath `
+        -Force
+}
+
+function Save-ChannelAudioUpload {
+    param(
+        [string]$FileName,
+        [string]$DataBase64,
+        [string]$Prefix
+    )
+
+    if([string]::IsNullOrWhiteSpace($DataBase64)) {
+        throw 'No MP3 was received.'
+    }
+
+    $name = [IO.Path]::GetFileName($FileName)
+
+    if($name -notmatch '\.mp3$') {
+        throw 'Only MP3 files are accepted.'
+    }
+
+    try {
+        $bytes = [Convert]::FromBase64String($DataBase64)
+    }
+    catch {
+        throw 'Uploaded audio was not valid base64.'
+    }
+
+    if($bytes.Length -gt 5MB) {
+        throw 'MP3 exceeds 5 MB.'
+    }
+
+    $soundDir = Join-Path $script:Root 'channel-sounds'
+
+    New-Item `
+        -ItemType Directory `
+        -Path $soundDir `
+        -Force |
+        Out-Null
+
+    $safeName = $name -replace '[^A-Za-z0-9._ -]','_'
+    $safePrefix = $Prefix -replace '[^A-Za-z0-9._-]','_'
+
+    $destination = Join-Path `
+        $soundDir `
+        ("{0}__{1}" -f $safePrefix,$safeName)
+
+    [IO.File]::WriteAllBytes($destination,$bytes)
+
+    return $destination
+}
+
+$listener=$null}}
     if(!$listener){throw 'Could not open a local ShinySlack port.'}
     if(!(Test-Path $script:Root)){New-Item -ItemType Directory -Path $script:Root -Force|Out-Null};Set-Content (Join-Path $script:Root 'web.port') $Port -Encoding ASCII;Set-Content (Join-Path $script:Root 'web.pid') $PID -Encoding ASCII;Set-Content (Join-Path $script:Root 'web.version') $script:Build -Encoding ASCII
     if(!$NoBrowser){ Start-Process ("http://127.0.0.1:$Port/") }
@@ -412,6 +808,123 @@ try {
                 }
                 continue
             }
+
+            if($req.Method -eq 'POST' -and $req.Path -eq '/api/channel/default'){
+                try {
+                    $j = $req.Body | ConvertFrom-Json
+
+                    $saved = Save-ChannelAudioUpload `
+                        -FileName ([string]$j.fileName) `
+                        -DataBase64 ([string]$j.dataBase64) `
+                        -Prefix 'DEFAULT'
+
+                    $cfg = Read-ChannelRoutesConfig
+                    $cfg.defaultSound = $saved
+
+                    Write-ChannelRoutesConfig $cfg
+
+                    Json-Response $client @{
+                        ok = $true
+                        sound = [IO.Path]::GetFileName($saved)
+                    }
+
+                    Write-WebDiag "Default channel-router sound updated." $rid
+                }
+                catch {
+                    Write-WebException $_ $rid 'Default channel sound route failed'
+                    Json-Response $client @{
+                        ok = $false
+                        error = $_.Exception.Message
+                    } 500
+                }
+
+                continue
+            }
+
+            if($req.Method -eq 'POST' -and $req.Path -eq '/api/channel/route'){
+                try {
+                    $j = $req.Body | ConvertFrom-Json
+
+                    $channel = [string]$j.channel
+                    $channel = $channel.Trim()
+
+                    if($channel.StartsWith('#')) {
+                        $channel = $channel.Substring(1)
+                    }
+
+                    if([string]::IsNullOrWhiteSpace($channel)) {
+                        throw 'Channel cannot be empty.'
+                    }
+
+                    $saved = Save-ChannelAudioUpload `
+                        -FileName ([string]$j.fileName) `
+                        -DataBase64 ([string]$j.dataBase64) `
+                        -Prefix $channel
+
+                    $cfg = Read-ChannelRoutesConfig
+                    $cfg.routes[$channel] = $saved
+
+                    Write-ChannelRoutesConfig $cfg
+
+                    Json-Response $client @{
+                        ok = $true
+                        channel = $channel
+                        sound = [IO.Path]::GetFileName($saved)
+                    }
+
+                    Write-WebDiag "Channel route updated: #$channel" $rid
+                }
+                catch {
+                    Write-WebException $_ $rid 'Channel route update failed'
+                    Json-Response $client @{
+                        ok = $false
+                        error = $_.Exception.Message
+                    } 500
+                }
+
+                continue
+            }
+
+            if($req.Method -eq 'POST' -and $req.Path -eq '/api/channel/remove'){
+                try {
+                    $j = $req.Body | ConvertFrom-Json
+
+                    $channel = [string]$j.channel
+                    $channel = $channel.Trim()
+
+                    if($channel.StartsWith('#')) {
+                        $channel = $channel.Substring(1)
+                    }
+
+                    if([string]::IsNullOrWhiteSpace($channel)) {
+                        throw 'Channel cannot be empty.'
+                    }
+
+                    $cfg = Read-ChannelRoutesConfig
+
+                    if($cfg.routes.ContainsKey($channel)) {
+                        $cfg.routes.Remove($channel)
+                    }
+
+                    Write-ChannelRoutesConfig $cfg
+
+                    Json-Response $client @{
+                        ok = $true
+                        channel = $channel
+                    }
+
+                    Write-WebDiag "Channel route removed: #$channel" $rid
+                }
+                catch {
+                    Write-WebException $_ $rid 'Channel route removal failed'
+                    Json-Response $client @{
+                        ok = $false
+                        error = $_.Exception.Message
+                    } 500
+                }
+
+                continue
+            }
             if($req.Method -eq 'POST' -and $req.Path -eq '/api/repair'){
                 try{
                     $s=Join-Path $script:Root 'Repair-ShinySlack.ps1'
@@ -453,3 +966,5 @@ try {
     if($listener){$listener.Stop()};Remove-Item (Join-Path $script:Root 'web.port') -Force -ErrorAction SilentlyContinue;Remove-Item (Join-Path $script:Root 'web.pid') -Force -ErrorAction SilentlyContinue
     if($hasMutex){try{$mutex.ReleaseMutex()}catch{}};$mutex.Dispose()
 }
+
+
