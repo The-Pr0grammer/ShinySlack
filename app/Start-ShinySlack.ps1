@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
 
 # Fallback for users who launch this .ps1 directly instead of Start-ShinySlack.cmd.
@@ -26,6 +26,40 @@ function Open-ShinySlackUrl {
     Start-Process $Url | Out-Null
 }
 
+function Ensure-ShinySlackRouter {
+    try {
+        if(!(Test-Path $stateRoot)) {
+            New-Item -ItemType Directory -Path $stateRoot -Force | Out-Null
+        }
+
+        $startupDir = [Environment]::GetFolderPath('Startup')
+        $startupCmd = Join-Path $startupDir 'ShinySlack-ChannelRouter.cmd'
+
+        $cmdText =
+            "@echo off`r`n" +
+            "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"%LOCALAPPDATA%\ShinySlack\Start-ChannelRouter.ps1`"`r`n"
+
+        Set-Content `
+            -LiteralPath $startupCmd `
+            -Value $cmdText `
+            -Encoding ASCII
+
+        $launcher = Join-Path $stateRoot 'Start-ChannelRouter.ps1'
+
+        if(Test-Path -LiteralPath $launcher) {
+            $psExe = Join-Path $env:SystemRoot `
+                'System32\WindowsPowerShell\v1.0\powershell.exe'
+
+            Start-Process `
+                -FilePath $psExe `
+                -ArgumentList "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$launcher`"" `
+                -WindowStyle Hidden |
+                Out-Null
+        }
+    }
+    catch {}
+}
+
 try {
     # Always replace an older ShinySlack web backend with the launcher's own build.
     # This prevents a stale V1-V4 server from serving an older UI/API after an upgrade.
@@ -46,6 +80,8 @@ try {
     if (!(Test-Path $stateRoot)) {
         New-Item -ItemType Directory -Path $stateRoot -Force | Out-Null
     }
+
+    Ensure-ShinySlackRouter
 
     Remove-Item $outLog,$errLog,$traceLog -Force -ErrorAction SilentlyContinue
 
@@ -109,3 +145,4 @@ catch {
     [void](Read-Host)
     exit 1
 }
+

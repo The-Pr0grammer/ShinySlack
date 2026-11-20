@@ -1,4 +1,4 @@
-#ifndef MyAppVersion
+﻿#ifndef MyAppVersion
   #define MyAppVersion "0.1.0-beta"
 #endif
 
@@ -47,6 +47,9 @@ Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile
 
 [UninstallDelete]
 Type: files; Name: "{userstartup}\ShinySlack-Watcher.cmd"
+Type: files; Name: "{userstartup}\ShinySlack-ChannelRouter.cmd"
+Type: filesandordirs; Name: "{app}\channel-sounds"
+Type: filesandordirs; Name: "{app}\wave-cache"
 Type: files; Name: "{app}\*.log"
 Type: files; Name: "{app}\*.json"
 Type: files; Name: "{app}\*.pid"
@@ -55,3 +58,4 @@ Type: files; Name: "{app}\*.mp3"
 Type: files; Name: "{app}\stock_url.txt"
 Type: files; Name: "{app}\agent.version"
 Type: filesandordirs; Name: "{app}\backups"
+
