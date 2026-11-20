@@ -68,7 +68,7 @@ function Copy-ShinyFileIfNeeded {
     Copy-Item -LiteralPath $Source -Destination $Destination -Force
 }
 
-foreach ($name in @('ShinySlack.Common.ps1','Repair-ShinySlack.ps1','Watch-ShinySlack.ps1','Set-ShinySlackSound.ps1','Uninstall-ShinySlack.ps1','ShinySlack-Operation.ps1')) {
+foreach ($name in @('ShinySlack.Common.ps1','Repair-ShinySlack.ps1','Watch-ShinySlack.ps1','Set-ShinySlackSound.ps1','Uninstall-ShinySlack.ps1','ShinySlack-Operation.ps1','ChannelRouter.ps1','Start-ChannelRouter.ps1','Set-ChannelSound.ps1','Set-DefaultSound.ps1','silent-slack.mp3')) {
     $src = Join-Path $PSScriptRoot $name
     Copy-ShinyFileIfNeeded -Source $src -Destination (Join-Path $root $name)
 }
@@ -121,6 +121,29 @@ $cmdText = "@echo off`r`nstart `"`" /min `"$psExe`" $watchArgs`r`n"
 Set-Content -Path $startupCmd -Value $cmdText -Encoding ASCII
 Write-ShinyLog "Installed watcher startup entry: $startupCmd"
 
+$routerStartupCmd = Join-Path $startupDir 'ShinySlack-ChannelRouter.cmd'
+
+$routerCmdText =
+    "@echo off`r`n" +
+    "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"%LOCALAPPDATA%\ShinySlack\Start-ChannelRouter.ps1`"`r`n"
+
+Set-Content `
+    -LiteralPath $routerStartupCmd `
+    -Value $routerCmdText `
+    -Encoding ASCII
+
+$routerLauncher = Join-Path $root 'Start-ChannelRouter.ps1'
+
+if(Test-Path -LiteralPath $routerLauncher) {
+    Start-Process `
+        -FilePath $psExe `
+        -ArgumentList "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$routerLauncher`"" `
+        -WindowStyle Hidden |
+        Out-Null
+}
+
+Write-ShinyLog "Installed channel-router startup entry: $routerStartupCmd"
+
 # Remove legacy persistence from older builds so it cannot spawn duplicates.
 try { Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'ShinySlackWatcher' -ErrorAction SilentlyContinue } catch {}
 try { Unregister-ScheduledTask -TaskName 'ShinySlack Watcher' -Confirm:$false -ErrorAction SilentlyContinue } catch {}
@@ -164,3 +187,4 @@ Write-Host "ShinySlack sound status: $result"
 Write-Host "Permanent folder: $root"
 Write-Host ("Watcher: " + $(if($watcherOk){'RUNNING'}else{'NOT RUNNING'}))
 Write-Host 'Test with a REAL incoming Slack notification.'
+

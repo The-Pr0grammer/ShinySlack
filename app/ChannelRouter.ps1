@@ -291,8 +291,34 @@ function Play-Sound {
         Write-RouterLog "$Reason sound=$name backend=WAV"
     }
     catch {
-        Say "PLAYBACK ERROR: $($_.Exception.Message)" Red
-        Write-RouterLog "PLAYBACK_ERROR $Reason $($_.Exception.Message)"
+        # A machine without ffmpeg cannot prebuild the low-latency WAV.
+        # Fall back to Windows MediaPlayer instead of losing notifications.
+        try {
+            $full = [IO.Path]::GetFullPath($Path)
+
+            $fallback =
+                New-Object System.Windows.Media.MediaPlayer
+
+            $fallback.Volume = $script:Volume
+            $fallback.Open([Uri]$full)
+            $fallback.Play()
+
+            [void]$script:Players.Add(
+                [pscustomobject]@{
+                    Player = $fallback
+                    Expires = (Get-Date).AddSeconds(45)
+                }
+            )
+
+            $name = [IO.Path]::GetFileName($full)
+
+            Say "PLAYING -> $name (MP3 fallback)" Yellow
+            Write-RouterLog "$Reason sound=$name backend=MP3-FALLBACK"
+        }
+        catch {
+            Say "PLAYBACK ERROR: $($_.Exception.Message)" Red
+            Write-RouterLog "PLAYBACK_ERROR $Reason $($_.Exception.Message)"
+        }
     }
 }
 function Get-RuntimeKey {
@@ -733,4 +759,5 @@ while($true) {
 
     Start-Sleep -Milliseconds $PollMilliseconds
 }
+
 

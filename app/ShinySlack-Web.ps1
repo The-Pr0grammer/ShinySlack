@@ -41,7 +41,7 @@ function Sync-InstalledShinySlackAgent {
         if($sourceFull -eq $rootFull){ return }
 
         $configPath=Join-Path $script:Root 'config.json'
-        $runtime=@('ShinySlack.Common.ps1','Repair-ShinySlack.ps1','Watch-ShinySlack.ps1','Set-ShinySlackSound.ps1','Uninstall-ShinySlack.ps1','ShinySlack-Operation.ps1')
+        $runtime=@('ShinySlack.Common.ps1','Repair-ShinySlack.ps1','Watch-ShinySlack.ps1','Set-ShinySlackSound.ps1','Uninstall-ShinySlack.ps1','ShinySlack-Operation.ps1','ChannelRouter.ps1','Start-ChannelRouter.ps1','Set-ChannelSound.ps1','Set-DefaultSound.ps1','silent-slack.mp3')
         $web=@('ShinySlack-Web.ps1','index.html','Start-ShinySlack.cmd','Start-ShinySlack.ps1','Install-ShinySlack.ps1')
 
         # Validate every PowerShell file before copying anything into the installed app.
@@ -966,5 +966,6 @@ $listener=$null}}
     if($listener){$listener.Stop()};Remove-Item (Join-Path $script:Root 'web.port') -Force -ErrorAction SilentlyContinue;Remove-Item (Join-Path $script:Root 'web.pid') -Force -ErrorAction SilentlyContinue
     if($hasMutex){try{$mutex.ReleaseMutex()}catch{}};$mutex.Dispose()
 }
+
 
 

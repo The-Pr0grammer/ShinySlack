@@ -1,4 +1,4 @@
-# ShinySlack
+﻿# ShinySlack
 
 **Your Slack. Your sound.**
 
@@ -95,3 +95,21 @@ powershell -ExecutionPolicy Bypass -File .\Publish-ShinySlack.ps1
 ```
 
 See `PUBLISH_IN_5_MINUTES.md` for the microwave version.
+
+## v2 beta channel routing
+
+v2 beta adds local real-time Slack notification audio routing on Windows.
+
+- Default notification MP3 for unmapped Slack notifications.
+- Per-channel MP3 routes.
+- Channel-first UI Automation detection for low-latency playback.
+- Duplicate/fallback suppression.
+- Hidden background router with Windows Startup persistence.
+- Bundled `app/silent-slack.mp3` for muting Slack's native base sound.
+- Existing global cache watcher remains in place as the silent-base keeper.
+
+For the cleanest v2 setup, apply `silent-slack.mp3` using the original ShinySlack sound control, then choose an audible DEFAULT sound under Channel Sounds. The router will own the audible notification while Slack's patched base remains silent.
+
+Low-latency WAV caching uses FFmpeg when available. Without FFmpeg, v2 beta falls back to MP3 playback instead of dropping the notification.
+
+This is still beta software. Slack UI/accessibility changes may require router updates.
