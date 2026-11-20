@@ -275,6 +275,29 @@ function Get-StatusObject {
         if($diagParts.Count){ $diag=$diagParts -join "`n`n"; if($log){$log="WATCHER DIAGNOSTICS:`n$diag`n`n$log"}else{$log="WATCHER DIAGNOSTICS:`n$diag"} }
     }
 
+    $notifications = @()
+    $recentPath = Join-Path $script:Root 'recent-notifications.json'
+
+    if(Test-Path -LiteralPath $recentPath) {
+
+        try {
+            $raw = Get-Content `
+                -LiteralPath $recentPath `
+                -Raw `
+                -Encoding UTF8
+
+            if($raw) {
+                $notifications = @($raw | ConvertFrom-Json)
+            }
+        }
+        catch {
+            Write-WebException `
+                $_ `
+                $RequestId `
+                'Recent notification feed read failed'
+        }
+    }
+
     Write-WebDiag 'STATUS 7/8: checking ffmpeg.' $RequestId
     $ffmpeg=[bool](Get-Command ffmpeg -ErrorAction SilentlyContinue)
 
@@ -284,7 +307,7 @@ function Get-StatusObject {
     [pscustomobject]@{
         ok=$true; build=$script:Build; installed=$installed; slackRunning=$slackRunning;
         cachePresent=$cachePresent; health=$health; watcherRunning=$watcher; watcherDetail=$watcherDetail;
-        ffmpeg=$ffmpeg; log=$log; agentBuild=$agentBuild; channelAudio=(Get-ChannelAudioStatus)
+        ffmpeg=$ffmpeg; log=$log; notifications=@($notifications); agentBuild=$agentBuild; channelAudio=(Get-ChannelAudioStatus)
     }
 }
 function Persist-WebFiles {

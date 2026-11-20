@@ -1,4 +1,4 @@
-﻿param(
+param(
     [int]$PollMilliseconds = 50,
     [int]$SettleMilliseconds = 100
 )
@@ -15,6 +15,7 @@ $script:Build = "TOAST-ROUTER-V3"
 $script:Root = Join-Path $env:LOCALAPPDATA "ShinySlack"
 $script:ConfigPath = Join-Path $script:Root "channel-routes.json"
 $script:LogPath = Join-Path $script:Root "channel-router.log"
+$script:RecentPath = Join-Path $script:Root "recent-notifications.json"
 $script:WaveCacheDir = Join-Path $script:Root "wave-cache"
 $script:SoundPlayers = @{}
 
@@ -58,6 +59,193 @@ function Write-RouterLog {
             -Value ("{0} {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"),$Message) `
             -Encoding UTF8
     } catch {}
+}
+
+function Get-ToastMessagePreview {
+    param(
+        $Anchor,
+        [string[]]$Exclude = @()
+    )
+
+    $found = @()
+
+    try {
+        $condition =
+            New-Object System.Windows.Automation.PropertyCondition(
+                [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                [System.Windows.Automation.ControlType]::Text
+            )
+
+        $elements = $desktop.FindAll(
+            [System.Windows.Automation.TreeScope]::Descendants,
+            $condition
+        )
+
+        foreach($e in $elements) {
+
+            try {
+                $name = [string]$e.Current.Name
+
+                if([string]::IsNullOrWhiteSpace($name)) {
+                    continue
+                }
+
+                $name = $name.Trim()
+
+                if(
+                    $name -eq 'Slack' -or
+                    $name -eq 'Close' -or
+                    $name -eq 'Reply' -or
+                    $name -eq 'Mark as read'
+                ) {
+                    continue
+                }
+
+                $skip = $false
+
+                foreach($x in $Exclude) {
+
+                    if(
+                        $x -and
+                        $name.Equals(
+                            $x,
+                            [StringComparison]::OrdinalIgnoreCase
+                        )
+                    ) {
+                        $skip = $true
+                        break
+                    }
+                }
+
+                if($skip) {
+                    continue
+                }
+
+                $rect = $e.Current.BoundingRectangle
+
+                if(
+                    $rect.Width -le 0 -or
+                    $rect.Height -le 0
+                ) {
+                    continue
+                }
+
+                $horizontal =
+                    ($rect.X -le ($Anchor.X + $Anchor.W + 100)) -and
+                    (($rect.X + $rect.Width) -ge ($Anchor.X - 100))
+
+                $vertical =
+                    $rect.Y -ge ($Anchor.Y - 15) -and
+                    $rect.Y -le ($Anchor.Y + 320)
+
+                if(!$horizontal -or !$vertical) {
+                    continue
+                }
+
+                $found += [pscustomobject]@{
+                    Text = $name
+                    X = [double]$rect.X
+                    Y = [double]$rect.Y
+                }
+            }
+            catch {}
+        }
+    }
+    catch {}
+
+    $ordered = @(
+        $found |
+        Sort-Object Y,X
+    )
+
+    $unique = @()
+
+    foreach($item in $ordered) {
+
+        if($unique -notcontains $item.Text) {
+            $unique += $item.Text
+        }
+    }
+
+    $message = ($unique -join '  ').Trim()
+
+    if($message.Length -gt 600) {
+        $message = $message.Substring(0,600) + '...'
+    }
+
+    return $message
+}
+
+
+function Write-RecentNotification {
+    param(
+        [string]$Source,
+        [string]$SoundPath,
+        $Anchor,
+        [string[]]$Exclude = @()
+    )
+
+    try {
+        $message = Get-ToastMessagePreview `
+            -Anchor $Anchor `
+            -Exclude $Exclude
+
+        $sound = ''
+
+        if($SoundPath) {
+            $sound = [IO.Path]::GetFileName($SoundPath)
+        }
+
+        $entry = [pscustomobject]@{
+            time    = (Get-Date).ToString('o')
+            source  = $Source
+            message = $message
+            sound   = $sound
+        }
+
+        $existing = @()
+
+        if(Test-Path -LiteralPath $script:RecentPath) {
+
+            try {
+                $raw = Get-Content `
+                    -LiteralPath $script:RecentPath `
+                    -Raw `
+                    -Encoding UTF8
+
+                if($raw) {
+                    $existing = @($raw | ConvertFrom-Json)
+                }
+            }
+            catch {
+                $existing = @()
+            }
+        }
+
+        $all = @($entry) + @($existing)
+
+        if($all.Count -gt 20) {
+            $all = @($all[0..19])
+        }
+
+        $tmp = $script:RecentPath + '.tmp'
+
+        ConvertTo-Json `
+            -InputObject $all `
+            -Depth 5 |
+        Set-Content `
+            -LiteralPath $tmp `
+            -Encoding UTF8
+
+        Move-Item `
+            -LiteralPath $tmp `
+            -Destination $script:RecentPath `
+            -Force
+    }
+    catch {
+        Write-RouterLog `
+            "ACTIVITY_CAPTURE_ERROR $($_.Exception.Message)"
+    }
 }
 
 function Load-Config {
@@ -468,6 +656,11 @@ function Find-ChannelForToast {
     return $best
 }
 
+Remove-Item `
+    -LiteralPath $script:RecentPath `
+    -Force `
+    -ErrorAction SilentlyContinue
+
 Load-Config
 Prime-SoundCache
 
@@ -569,18 +762,33 @@ while($true) {
 
                 Say "ROUTE MATCH" Green
 
-                Play-Sound `
-                    -Path $script:Routes[$channelKey] `
-                    -Reason "ROUTED channel=#$channelKey"
+                $soundPath = $script:Routes[$channelKey]
+                $reason = "ROUTED channel=#$channelKey"
             }
             else {
 
                 Say "DEFAULT ROUTE" Yellow
 
-                Play-Sound `
-                    -Path $script:DefaultSound `
-                    -Reason "DEFAULT channel=#$channelKey"
+                $soundPath = $script:DefaultSound
+                $reason = "DEFAULT channel=#$channelKey"
             }
+
+            # Playback remains the priority.
+            Play-Sound `
+                -Path $soundPath `
+                -Reason $reason
+
+            # Give Slack a moment to expose the remaining toast text.
+            Start-Sleep -Milliseconds 75
+
+            Write-RecentNotification `
+                -Source "#$channelKey" `
+                -SoundPath $soundPath `
+                -Anchor $c `
+                -Exclude @(
+                    $channelKey,
+                    "#$channelKey"
+                )
         }
 
         # Allow a new toast to use the same RuntimeId after the old one disappears.
@@ -725,6 +933,16 @@ while($true) {
                 -Path $script:DefaultSound `
                 -Reason "DEFAULT channel=unknown"
 
+            Start-Sleep -Milliseconds 75
+
+            Write-RecentNotification `
+                -Source "DM / Slack" `
+                -SoundPath $script:DefaultSound `
+                -Anchor $team `
+                -Exclude @(
+                    [string]$team.Name
+                )
+
             $pendingTeams.Remove($key)
         }
 
@@ -759,5 +977,3 @@ while($true) {
 
     Start-Sleep -Milliseconds $PollMilliseconds
 }
-
-
