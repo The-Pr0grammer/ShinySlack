@@ -1,4 +1,4 @@
-﻿param([int]$Port = 38721,[switch]$NoBrowser)
+param([int]$Port = 38721,[switch]$NoBrowser)
 $ErrorActionPreference = 'Stop'
 $script:StopServer = $false
 $script:Token = [Convert]::ToBase64String([byte[]](1..32 | ForEach-Object { Get-Random -Minimum 0 -Maximum 256 }))
@@ -42,7 +42,7 @@ function Sync-InstalledShinySlackAgent {
 
         $configPath=Join-Path $script:Root 'config.json'
         $runtime=@('ShinySlack.Common.ps1','Repair-ShinySlack.ps1','Watch-ShinySlack.ps1','Set-ShinySlackSound.ps1','Uninstall-ShinySlack.ps1','ShinySlack-Operation.ps1','ChannelRouter.ps1','Start-ChannelRouter.ps1','Set-ChannelSound.ps1','Set-DefaultSound.ps1','silent-slack.mp3')
-        $web=@('ShinySlack-Web.ps1','index.html','Start-ShinySlack.cmd','Start-ShinySlack.ps1','Install-ShinySlack.ps1')
+        $web=@('ShinySlack-Web.ps1','index.html','Start-ShinySlack.cmd','Start-ShinySlack.ps1','Install-ShinySlack.ps1','version.txt')
 
         # Validate every PowerShell file before copying anything into the installed app.
         $parseFailures=@()
@@ -754,6 +754,84 @@ $listener=$null}}
                 Write-WebDiag 'Status response sent.' $rid
                 continue
             }
+            if($req.Method -eq 'GET' -and $req.Path -eq '/api/update/check'){
+                try {
+                    Write-WebDiag 'Checking GitHub for ShinySlack updates.' $rid
+
+                    $versionPath = Join-Path $script:SourceDir 'version.txt'
+                    $currentVersion = 'v2.0.0-beta.1'
+
+                    if(Test-Path -LiteralPath $versionPath) {
+                        $readVersion = (
+                            Get-Content `
+                                -LiteralPath $versionPath `
+                                -Raw `
+                                -Encoding UTF8
+                        ).Trim()
+
+                        if($readVersion) {
+                            $currentVersion = $readVersion
+                        }
+                    }
+
+                    $headers = @{
+                        'User-Agent' = 'ShinySlack'
+                        'Accept'     = 'application/vnd.github+json'
+                    }
+
+                    $oldProtocol = [Net.ServicePointManager]::SecurityProtocol
+
+                    try {
+                        [Net.ServicePointManager]::SecurityProtocol =
+                            $oldProtocol -bor [Net.SecurityProtocolType]::Tls12
+
+                        $releases = @(
+                            Invoke-RestMethod `
+                                -Uri 'https://api.github.com/repos/The-Pr0grammer/ShinySlack/releases?per_page=20' `
+                                -Headers $headers `
+                                -Method Get `
+                                -TimeoutSec 10
+                        )
+                    }
+                    finally {
+                        [Net.ServicePointManager]::SecurityProtocol = $oldProtocol
+                    }
+
+                    $latest = $releases |
+                        Where-Object { -not $_.draft } |
+                        Select-Object -First 1
+
+                    if(!$latest) {
+                        throw 'GitHub returned no published ShinySlack releases.'
+                    }
+
+                    $latestVersion = [string]$latest.tag_name
+
+                    Json-Response $client @{
+                        ok              = $true
+                        currentVersion  = $currentVersion
+                        latestVersion   = $latestVersion
+                        updateAvailable = ($latestVersion -ne $currentVersion)
+                        releaseUrl      = [string]$latest.html_url
+                        prerelease      = [bool]$latest.prerelease
+                    }
+
+                    Write-WebDiag `
+                        "Update check complete. installed=$currentVersion latest=$latestVersion" `
+                        $rid
+                }
+                catch {
+                    Write-WebException $_ $rid 'Update check failed'
+
+                    Json-Response $client @{
+                        ok    = $false
+                        error = "Could not check for updates: $($_.Exception.Message)"
+                    } 500
+                }
+
+                continue
+            }
+
             if($req.Method -eq 'GET' -and $req.Path -like '/api/op/*'){
                 try{
                     $id=$req.Path.Substring('/api/op/'.Length)
@@ -966,6 +1044,3 @@ $listener=$null}}
     if($listener){$listener.Stop()};Remove-Item (Join-Path $script:Root 'web.port') -Force -ErrorAction SilentlyContinue;Remove-Item (Join-Path $script:Root 'web.pid') -Force -ErrorAction SilentlyContinue
     if($hasMutex){try{$mutex.ReleaseMutex()}catch{}};$mutex.Dispose()
 }
-
-
-
