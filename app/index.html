@@ -100,7 +100,75 @@ const TOKEN='__TOKEN__';
 let selected=null, previewUrl=null;
 const $=id=>document.getElementById(id);
 function cls(el,state){el.className='v '+state}
-async function api(path,options={}){const ctl=new AbortController();const timer=setTimeout(()=>ctl.abort(),12000);options.headers={...(options.headers||{}),'X-ShinySlack-Token':TOKEN};options.signal=ctl.signal;try{const r=await fetch(path,options);const t=await r.text();let j;try{j=JSON.parse(t)}catch{throw new Error(t||('HTTP '+r.status))}if(!r.ok||j.ok===false)throw new Error(j.error||j.output||'Request failed');return j}catch(e){if(e.name==='AbortError')throw new Error('Local ShinySlack API timed out after 12s. Check web-trace.log.');throw e}finally{clearTimeout(timer)}}
+async function api(path,options={}){
+  const ctl=new AbortController();
+  const timer=setTimeout(()=>ctl.abort(),12000);
+
+  options.headers={
+    ...(options.headers||{}),
+    'X-ShinySlack-Token':TOKEN
+  };
+
+  options.signal=ctl.signal;
+
+  try{
+    const r=await fetch(path,options);
+
+    // The backend generates a fresh local auth token whenever it restarts.
+    // If this tab still has the old token, refresh once automatically
+    // instead of showing the user a scary "Forbidden" error.
+    if(r.status===403){
+      const guardKey='shinyslack-auth-reload';
+      const alreadyReloaded=sessionStorage.getItem(guardKey);
+
+      if(alreadyReloaded!==TOKEN){
+        sessionStorage.setItem(guardKey,TOKEN);
+
+        const result=$('result');
+        if(result){
+          result.className='result show ok';
+          result.textContent='ShinySlack restarted. Refreshing...';
+        }
+
+        setTimeout(()=>window.location.reload(),350);
+
+        // Prevent the original caller from rendering an error while
+        // the page is being replaced.
+        return await new Promise(()=>{});
+      }
+    }
+
+    const t=await r.text();
+
+    let j;
+    try{
+      j=JSON.parse(t);
+    }catch{
+      throw new Error(t||('HTTP '+r.status));
+    }
+
+    if(!r.ok||j.ok===false){
+      throw new Error(j.error||j.output||'Request failed');
+    }
+
+    // Successful authenticated request means the current token is healthy.
+    sessionStorage.removeItem('shinyslack-auth-reload');
+
+    return j;
+  }
+  catch(e){
+    if(e.name==='AbortError'){
+      throw new Error(
+        'Local ShinySlack API timed out after 12s. Check web-trace.log.'
+      );
+    }
+
+    throw e;
+  }
+  finally{
+    clearTimeout(timer);
+  }
+}
 let channelUploadTarget='';
 
 function normalizeChannel(v){
