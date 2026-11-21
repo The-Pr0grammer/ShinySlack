@@ -1560,8 +1560,8 @@ function renderChannelAudio(s){
 
     channel.title=
       isLinked
-        ? 'Open exact Slack channel'
-        : 'Open Slack';
+        ? 'Open #'+r.channel+' directly in Slack'
+        : 'Open Slack. Use Link to make this jump directly to #'+r.channel;
 
     channel.onclick=
       ()=>{
@@ -1581,6 +1581,11 @@ function renderChannelAudio(s){
       r.sound||
       'No sound';
 
+    sound.title=
+      r.sound
+        ? 'Current notification sound: '+r.sound
+        : 'No custom sound assigned';
+
 
     const actions=
       document.createElement('div');
@@ -1594,6 +1599,14 @@ function renderChannelAudio(s){
 
     change.textContent=
       'Change';
+
+    change.title=
+      'Change the notification sound used for #'+r.channel;
+
+    change.setAttribute(
+      'aria-label',
+      'Change notification sound for #'+r.channel
+    );
 
     change.onclick=
       ()=>{
@@ -1622,17 +1635,25 @@ function renderChannelAudio(s){
       );
 
       link.title=
-        (
-          savedLink?.team||
-          r.team||
-          ''
-        )+
-        '/'+
-        (
-          savedLink?.channel||
-          r.channelId||
-          ''
-        );
+        'Direct Slack channel link is active.'+
+        '\nClick to change the Channel ID or unlink it.';
+
+      link.setAttribute(
+        'aria-label',
+        'Deep link active for #'+r.channel+
+        '. Click to edit or unlink.'
+      );
+    }
+    else{
+
+      link.title=
+        'Link this route to a Slack Channel ID.'+
+        '\nOnce linked, alerts and Activity cards can open the exact channel.';
+
+      link.setAttribute(
+        'aria-label',
+        'Add deep link for #'+r.channel
+      );
     }
 
 
@@ -1665,6 +1686,15 @@ function renderChannelAudio(s){
 
     remove.textContent=
       'Remove';
+
+    remove.title=
+      'Remove #'+r.channel+
+      ' from Channel Routes, including its custom sound and saved deep link.';
+
+    remove.setAttribute(
+      'aria-label',
+      'Remove channel route for #'+r.channel
+    );
 
     remove.onclick=
       ()=>{
