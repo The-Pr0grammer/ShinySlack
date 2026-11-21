@@ -1673,8 +1673,20 @@ $listener=$null}}
 
                         $safeRoutes +=
                             [ordered]@{
-                                channel = [string]$r.channel
-                                sound   = [string]$r.sound
+                                channel =
+                                    [string]$r.channel
+
+                                sound =
+                                    [string]$r.sound
+
+                                linked =
+                                    [bool]$r.linked
+
+                                team =
+                                    [string]$r.team
+
+                                channelId =
+                                    [string]$r.channelId
                             }
                     }
                 }

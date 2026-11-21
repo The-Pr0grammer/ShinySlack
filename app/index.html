@@ -246,6 +246,14 @@
   display:flex;
   gap:8px;
 }
+
+/* SHINY-LINKED-BUTTON-FINAL-V1 */
+
+.channelActions button.deepLinked{
+  color:#54e39a !important;
+  border-color:#28543d !important;
+  background:#0d1d17 !important;
+}
 </style>
 </head>
 <body>
@@ -1526,26 +1534,13 @@ function renderChannelAudio(s){
 
   routes.forEach(r=>{
 
-    const savedLink=
-      (c.deepLinks||{})[r.channel]||null;
-
-    const linkedChannels=
-      new Set(
-        (c.linkedChannels||[])
-          .map(
-            v=>
-              String(v||'')
-                .replace(/^#/,'')
-                .trim()
-          )
-      );
-
     const isLinked=
-      linkedChannels.has(
-        String(r.channel||'')
-          .replace(/^#/,'')
-          .trim()
-      );
+      !!r.linked;
+
+    const savedLink={
+      team:r.team||'',
+      channel:r.channelId||''
+    };
 
     const row=
       document.createElement('div');
