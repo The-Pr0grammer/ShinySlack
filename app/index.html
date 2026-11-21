@@ -1526,6 +1526,16 @@ function renderChannelAudio(s){
 
   routes.forEach(r=>{
 
+    const savedLink=
+      (c.deepLinks||{})[r.channel]||null;
+
+    const isLinked=
+      !!(
+        savedLink &&
+        savedLink.team &&
+        savedLink.channel
+      );
+
     const row=
       document.createElement('div');
 
@@ -1543,7 +1553,7 @@ function renderChannelAudio(s){
       '#'+r.channel;
 
     channel.title=
-      r.linked
+      isLinked
         ? 'Open exact Slack channel'
         : 'Open Slack';
 
@@ -1595,28 +1605,36 @@ function renderChannelAudio(s){
       document.createElement('button');
 
     link.textContent=
-      r.linked
+      isLinked
         ? 'Linked ✓'
         : 'Link';
 
-    if(r.linked){
+    if(isLinked){
 
       link.classList.add(
         'deepLinked'
       );
 
       link.title=
-        r.team+
+        savedLink.team+
         '/'+
-        r.channelId;
+        savedLink.channel;
     }
 
 
     link.onclick=
       ()=>{
-        configureNativeChannelLink(
-          r
-        );
+
+        configureNativeChannelLink({
+          ...r,
+          linked:isLinked,
+          team:isLinked
+            ? savedLink.team
+            : '',
+          channelId:isLinked
+            ? savedLink.channel
+            : ''
+        });
       };
 
 
