@@ -1,36 +1,67 @@
 {
-    "version":  2,
-    "presets":  [
-                    {
-                        "id":  "boop-71dfa059",
-                        "name":  "Boop",
-                        "fileName":  "boop-71dfa059.mp3",
-                        "sha256":  "36250f6ca99dd7efc743f4be8d640a70b01472f2adcd5c4ac1bc9cdf3fa0a3e3"
-                    },
-                    {
-                        "id":  "fahhh-21994c56",
-                        "name":  "Fahhh",
-                        "fileName":  "fahhh-21994c56.mp3",
-                        "sha256":  "1cbf381c7cb3a310c1767fa70e742e217d39993af7554a99127677fa7ebfdfbd"
-                    },
-                    {
-                        "id":  "kamehameha-563f3e54",
-                        "name":  "Kamehameha",
-                        "fileName":  "kamehameha-563f3e54.mp3",
-                        "sha256":  "c535147d379721bf959787fe749070ae4139ccb14599f16af3e35c67352b6964"
-                    },
-                    {
-                        "id":  "patrick-wee-woo-1-da699b37",
-                        "name":  "Patrick Wee Woo 1",
-                        "fileName":  "patrick-wee-woo-1-da699b37.mp3",
-                        "sha256":  "8173ece7134885439bde9fa21956b7ddaee2da427425280f3e93ba77a6af8183"
-                    }
-                ],
+    "version":  3,
+    "libraryVersion":  "1.0",
+    "libraryName":  "ShinySlack Official Library v1",
     "mastering":  {
                       "targetLufs":  -18,
                       "truePeakDb":  -1.5,
                       "loudnessRange":  7,
-                      "method":  "ffmpeg loudnorm",
-                      "masteredAt":  "2026-11-21T14:34:08.5008588-08:00"
-                  }
+                      "encoding":  "MP3 192 kbps / 44.1 kHz"
+                  },
+    "presets":  [
+                    {
+                        "id":  "legends-arceus-shiny",
+                        "name":  "Legends: Arceus Shiny",
+                        "fileName":  "legends-arceus-shiny.mp3",
+                        "sha256":  "1bc37c16107359c7098b8422ba04fee12af03f0a3fc60ef99210cba47d7567c7"
+                    },
+                    {
+                        "id":  "metal-gear-alert",
+                        "name":  "Metal Gear Alert",
+                        "fileName":  "metal-gear-alert.mp3",
+                        "sha256":  "67a11d2a0619ac64ae4648c47fb84cef8f2e3c2cf400d797081c8f86833ea718"
+                    },
+                    {
+                        "id":  "kamehameha",
+                        "name":  "Kamehameha",
+                        "fileName":  "kamehameha.mp3",
+                        "sha256":  "4c08435eed3799c432980d633579fee0822ddd48ca60188709a0164977c07c8f"
+                    },
+                    {
+                        "id":  "pokemon-center-heal",
+                        "name":  "Pokemon Center Heal",
+                        "fileName":  "pokemon-center-heal.mp3",
+                        "sha256":  "5d680ab4304e43d0f71bf0fc971cec08e622b9cd7947d807188768ac30e0ff7a"
+                    },
+                    {
+                        "id":  "patrick-wee-woo",
+                        "name":  "Patrick: Wee Woo",
+                        "fileName":  "patrick-wee-woo.mp3",
+                        "sha256":  "926f7ed4842a85308b38fad28765c1d2d87ef6b07458cd2ee202c52e7e901667"
+                    },
+                    {
+                        "id":  "patrick-what-just-happened",
+                        "name":  "Patrick: What Just Happened?",
+                        "fileName":  "patrick-what-just-happened.mp3",
+                        "sha256":  "e4e905d348613316042777361ceaf5909bb538c0f739fe51cf3ad575545384e9"
+                    },
+                    {
+                        "id":  "lester-thirty-seconds",
+                        "name":  "Lester: 30 Seconds",
+                        "fileName":  "lester-thirty-seconds.mp3",
+                        "sha256":  "85d8fedad6a9d2a5797ce9e9b9682c19d8f678f6eb2fbf1f6c8feaa6b8cecaa9"
+                    },
+                    {
+                        "id":  "fahhh",
+                        "name":  "Fahhh",
+                        "fileName":  "fahhh.mp3",
+                        "sha256":  "cf493a82cffdfc3bbc381cbeb853b7896eb7fed7a325f67d6ecff9a6f7dda914"
+                    },
+                    {
+                        "id":  "silent",
+                        "name":  "Silent (Visual Only)",
+                        "fileName":  "silent.mp3",
+                        "sha256":  "a9d2d471afbdff136ce3ed142a6094b4fe6955c417d090fd3a492688ddb457e6"
+                    }
+                ]
 }
