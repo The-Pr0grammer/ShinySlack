@@ -10,7 +10,7 @@ Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type -AssemblyName PresentationCore
 
-$script:Build = "TOAST-ROUTER-V3"
+$script:Build = "TOAST-ROUTER-V4"
 
 $script:Root = Join-Path $env:LOCALAPPDATA "ShinySlack"
 $script:ConfigPath = Join-Path $script:Root "channel-routes.json"
@@ -61,77 +61,31 @@ function Write-RouterLog {
     } catch {}
 }
 
-function Get-ToastMessagePreview {
-    param(
-        $Anchor,
-        [string[]]$Exclude = @()
-    )
+function Get-MessageText {
+    param($MessageElement)
+
+    $items = @()
 
     try {
-        $messageCondition =
-            New-Object System.Windows.Automation.PropertyCondition(
-                [System.Windows.Automation.AutomationElement]::ClassNameProperty,
-                "Message"
-            )
+        $selfName = [string]$MessageElement.Current.Name
 
-        $containers = $desktop.FindAll(
-            [System.Windows.Automation.TreeScope]::Descendants,
-            $messageCondition
-        )
-
-        $best = $null
-        $bestDistance = 999999
-
-        foreach($m in $containers) {
-
-            try {
-                $r = $m.Current.BoundingRectangle
-
-                if(
-                    $r.Width -le 0 -or
-                    $r.Height -le 0
-                ) {
-                    continue
-                }
-
-                $horizontal =
-                    ($r.X -le ($Anchor.X + $Anchor.W + 120)) -and
-                    (($r.X + $r.Width) -ge ($Anchor.X - 120))
-
-                $vertical =
-                    $r.Y -ge ($Anchor.Y - 50) -and
-                    $r.Y -le ($Anchor.Y + 260)
-
-                if(!$horizontal -or !$vertical) {
-                    continue
-                }
-
-                $distance =
-                    [Math]::Abs($r.Y - $Anchor.Y)
-
-                if($distance -lt $bestDistance) {
-                    $best = $m
-                    $bestDistance = $distance
-                }
-            }
-            catch {}
+        if(![string]::IsNullOrWhiteSpace($selfName)) {
+            $items += $selfName.Trim()
         }
+    }
+    catch {}
 
-        if($null -eq $best) {
-            return ''
-        }
-
-        $elements = $best.FindAll(
+    try {
+        $children = $MessageElement.FindAll(
             [System.Windows.Automation.TreeScope]::Descendants,
             [System.Windows.Automation.Condition]::TrueCondition
         )
 
-        $items = @()
-
-        foreach($e in $elements) {
+        foreach($e in $children) {
 
             try {
-                $name = [string]$e.Current.Name
+                $name  = [string]$e.Current.Name
+                $class = [string]$e.Current.ClassName
 
                 if([string]::IsNullOrWhiteSpace($name)) {
                     continue
@@ -139,28 +93,13 @@ function Get-ToastMessagePreview {
 
                 $name = $name.Trim()
 
-                $skip = $false
-
-                foreach($x in $Exclude) {
-
-                    if(
-                        $x -and
-                        $name.Equals(
-                            $x,
-                            [StringComparison]::OrdinalIgnoreCase
-                        )
-                    ) {
-                        $skip = $true
-                        break
-                    }
-                }
-
-                if($skip) {
-                    continue
-                }
-
                 if(
-                    $name -eq 'Slack' -or
+                    $class -eq 'Avatar' -or
+                    $class -eq 'Close' -or
+                    $class -eq 'OpenTeam' -or
+                    $class -eq 'OpenChannel' -or
+                    $name -eq 'Avatar' -or
+                    $name -eq 'Message' -or
                     $name -eq 'Close' -or
                     $name -eq 'Reply' -or
                     $name -eq 'Mark as read'
@@ -168,61 +107,33 @@ function Get-ToastMessagePreview {
                     continue
                 }
 
-                $r = $e.Current.BoundingRectangle
-
-                $items += [pscustomobject]@{
-                    Text = $name
-                    Y = [double]$r.Y
-                    X = [double]$r.X
+                if($items -notcontains $name) {
+                    $items += $name
                 }
             }
             catch {}
         }
-
-        $ordered = @(
-            $items |
-            Sort-Object Y,X
-        )
-
-        $unique = @()
-
-        foreach($item in $ordered) {
-
-            if($unique -notcontains $item.Text) {
-                $unique += $item.Text
-            }
-        }
-
-        $preview = ($unique -join '  ').Trim()
-
-        if($preview.Length -gt 600) {
-            $preview =
-                $preview.Substring(0,600) + '...'
-        }
-
-        return $preview
     }
-    catch {
-        Write-RouterLog `
-            "MESSAGE_CAPTURE_ERROR $($_.Exception.Message)"
+    catch {}
 
-        return ''
+    $text = ($items -join '  ').Trim()
+
+    if($text.Length -gt 600) {
+        $text = $text.Substring(0,600) + '...'
     }
+
+    return $text
 }
+
 
 function Write-RecentNotification {
     param(
         [string]$Source,
         [string]$SoundPath,
-        $Anchor,
-        [string[]]$Exclude = @()
+        [string]$Message
     )
 
     try {
-        $message = Get-ToastMessagePreview `
-            -Anchor $Anchor `
-            -Exclude $Exclude
-
         $sound = ''
 
         if($SoundPath) {
@@ -232,7 +143,7 @@ function Write-RecentNotification {
         $entry = [pscustomobject]@{
             time    = (Get-Date).ToString('o')
             source  = $Source
-            message = $message
+            message = $Message
             sound   = $sound
         }
 
@@ -274,10 +185,18 @@ function Write-RecentNotification {
             -LiteralPath $tmp `
             -Destination $script:RecentPath `
             -Force
+
+        Write-RouterLog (
+            "ACTIVITY_SAVED source={0} chars={1}" -f `
+            $Source,
+            $Message.Length
+        )
     }
     catch {
-        Write-RouterLog `
-            "ACTIVITY_CAPTURE_ERROR $($_.Exception.Message)"
+        Write-RouterLog (
+            "ACTIVITY_CAPTURE_ERROR {0}" -f `
+            $_.Exception.Message
+        )
     }
 }
 
@@ -656,6 +575,136 @@ function Get-ToastChannels {
     return @($result)
 }
 
+function Get-ToastMessages {
+    param(
+        $Channels,
+        $Teams
+    )
+
+    $result = @()
+
+    $elements = $desktop.FindAll(
+        [System.Windows.Automation.TreeScope]::Descendants,
+        $messageCondition
+    )
+
+    foreach($e in $elements) {
+
+        try {
+            $rect = $e.Current.BoundingRectangle
+
+            if(!(Test-ToastZone $rect)) {
+                continue
+            }
+
+            # Avoid matching ordinary Slack content behind the popup.
+            # A notification Message must live near a toast-specific
+            # OpenChannel or OpenTeam anchor.
+            $nearToast = $false
+
+            foreach($c in @($Channels)) {
+
+                $horizontal =
+                    ($rect.X -le ($c.X + $c.W + 100)) -and
+                    (($rect.X + $rect.Width) -ge ($c.X - 100))
+
+                $dy = $rect.Y - $c.Y
+
+                if(
+                    $horizontal -and
+                    $dy -ge -30 -and
+                    $dy -le 500
+                ) {
+                    $nearToast = $true
+                    break
+                }
+            }
+
+            if(!$nearToast) {
+
+                foreach($t in @($Teams.Values)) {
+
+                    $horizontal =
+                        ($rect.X -le ($t.X + $t.W + 100)) -and
+                        (($rect.X + $rect.Width) -ge ($t.X - 100))
+
+                    $dy = $rect.Y - $t.Y
+
+                    if(
+                        $horizontal -and
+                        $dy -ge -30 -and
+                        $dy -le 550
+                    ) {
+                        $nearToast = $true
+                        break
+                    }
+                }
+            }
+
+            if(!$nearToast) {
+                continue
+            }
+
+            # Toast message cards are compact. This further excludes
+            # giant Slack conversation-pane elements.
+            if(
+                $rect.Width -gt 700 -or
+                $rect.Height -gt 400
+            ) {
+                continue
+            }
+
+            $result += [pscustomobject]@{
+                Key     = Get-RuntimeKey $e
+                Element = $e
+                X       = [double]$rect.X
+                Y       = [double]$rect.Y
+                W       = [double]$rect.Width
+                H       = [double]$rect.Height
+            }
+        }
+        catch {}
+    }
+
+    return @($result)
+}
+
+
+function Find-ChannelForMessage {
+    param(
+        $Message,
+        $Channels
+    )
+
+    $best = $null
+    $bestDistance = 999999
+
+    foreach($c in @($Channels)) {
+
+        $horizontal =
+            ($Message.X -le ($c.X + $c.W + 100)) -and
+            (($Message.X + $Message.W) -ge ($c.X - 100))
+
+        if(!$horizontal) {
+            continue
+        }
+
+        # The channel header normally sits above the Message card.
+        $dy = $Message.Y - $c.Y
+
+        if(
+            $dy -ge -30 -and
+            $dy -le 500 -and
+            $dy -lt $bestDistance
+        ) {
+            $best = $c.Channel
+            $bestDistance = $dy
+        }
+    }
+
+    return $best
+}
+
 function Find-ChannelForToast {
     param(
         $Team,
@@ -708,184 +757,201 @@ Say ""
 Say "READY." Green
 Say ""
 
-Write-RouterLog "START build=$script:Build mode=channel-first"
+Write-RouterLog "START build=$script:Build mode=message-first"
 
-# Channel elements own normal channel notifications.
-# OpenTeam is only a fallback for notifications that expose no channel.
-$activeChannels = @{}
-
-# Dedupe actual toast instances, not entire channels.
-# This allows multiple #Slackbot notifications stacked at once.
-$recentToastFires = @()
-
-# Remember where/when a channel toast fired so the slower
-# OpenTeam fallback cannot replay the same notification later.
-$recentPrimaryToasts = @()
+# A Slack Message element is the notification event.
+# OpenChannel/OpenTeam are routing/context metadata only.
+$activeMessages = @{}
+$recentMessageFires = @()
 
 $pendingTeams = @{}
 $activeTeams = @{}
 $recentFallbackFires = @{}
 
-$toastDedupeMilliseconds = 600
-$fallbackMilliseconds = 650
+$fallbackMilliseconds = 700
 
 $lastBeat = Get-Date
 
 while($true) {
 
     try {
-
         Reload-ConfigIfChanged
         Cleanup-Players
 
         $now = Get-Date
 
-        # ------------------------------------------------------------
-        # PRIMARY PATH
-        # OpenChannel appearing in the toast zone fires immediately.
-        # ------------------------------------------------------------
-
         $channels = @(Get-ToastChannels)
-        $presentChannels = @{}
+        $teams = Get-ToastTeams
 
-        foreach($c in $channels) {
+        $messages = @(
+            Get-ToastMessages `
+                -Channels $channels `
+                -Teams $teams
+        )
 
-            $elementKey = [string]$c.Key
+        $presentMessages = @{}
+        $newSoundsThisScan = 0
 
-            if([string]::IsNullOrWhiteSpace($elementKey)) {
+
+        # ----------------------------------------------------
+        # PRIMARY PATH: ONE EVENT PER SLACK MESSAGE CARD
+        # ----------------------------------------------------
+
+        foreach($m in $messages) {
+
+            $key = [string]$m.Key
+
+            if([string]::IsNullOrWhiteSpace($key)) {
                 continue
             }
 
-            $presentChannels[$elementKey] = $true
+            $presentMessages[$key] = $true
 
-            if($activeChannels.ContainsKey($elementKey)) {
+            if($activeMessages.ContainsKey($key)) {
                 continue
             }
 
-            $activeChannels[$elementKey] = $true
+            $activeMessages[$key] = $true
 
-            $channelKey = [string]$c.Channel
+            $channelKey =
+                Find-ChannelForMessage `
+                    -Message $m `
+                    -Channels $channels
 
-            # Slack may rebuild the SAME toast with a new RuntimeId.
-            # Only suppress it when channel AND screen position match.
-            # Separate stacked toasts have different Y positions and
-            # therefore each get their own sound.
-            $duplicateToast = $false
+            $messageText =
+                Get-MessageText `
+                    -MessageElement $m.Element
 
-            foreach($f in $recentToastFires) {
+            $source = if($channelKey) {
+                "#$channelKey"
+            }
+            else {
+                "DM / Slack"
+            }
+
+
+            # ------------------------------------------------
+            # REPAINT DEDUPE
+            #
+            # Same runtime ID already gets blocked above.
+            # This catches Slack rebuilding the same Message
+            # element with a new runtime ID.
+            #
+            # Identical stacked messages remain distinct because
+            # they occupy different Y positions.
+            # ------------------------------------------------
+
+            $duplicate = $false
+
+            foreach($f in $recentMessageFires) {
 
                 $age =
                     ($now - $f.Time).TotalMilliseconds
 
                 $samePosition =
-                    [Math]::Abs($f.X - $c.X) -lt 35 -and
-                    [Math]::Abs($f.Y - $c.Y) -lt 35
+                    [Math]::Abs($f.X - $m.X) -lt 28 -and
+                    [Math]::Abs($f.Y - $m.Y) -lt 28
 
                 if(
-                    $f.Channel -eq $channelKey -and
-                    $age -lt $toastDedupeMilliseconds -and
-                    $samePosition
+                    $age -lt 900 -and
+                    $samePosition -and
+                    $f.Source -eq $source
                 ) {
-                    $duplicateToast = $true
+                    $duplicate = $true
                     break
                 }
             }
 
-            if($duplicateToast) {
+            if($duplicate) {
+
                 Write-RouterLog (
-                    "DEDUPE channel=#{0} x={1} y={2}" -f `
-                    $channelKey,
-                    [int]$c.X,
-                    [int]$c.Y
+                    "MESSAGE_DEDUPE source={0} x={1} y={2}" -f `
+                    $source,
+                    [int]$m.X,
+                    [int]$m.Y
                 )
 
                 continue
             }
 
-            $recentToastFires += [pscustomobject]@{
-                Time = $now
-                Channel = $channelKey
-                X = [double]$c.X
-                Y = [double]$c.Y
+
+            # If Slack delivered several notification cards in the
+            # same scan, keep the first immediate and offset the rest
+            # slightly so Play() calls don't acoustically collapse.
+            if($newSoundsThisScan -gt 0) {
+                Start-Sleep -Milliseconds 120
             }
 
-            $recentPrimaryToasts += [pscustomobject]@{
-                Time = $now
-                X = [double]$c.X
-                Y = [double]$c.Y
-                W = [double]$c.W
-                H = [double]$c.H
-                Channel = $channelKey
-            }
 
-            Say "----------------------------------------" DarkCyan
-            Say "SLACK CHANNEL TOAST" Cyan
-            Say "Channel:   #$channelKey" White
-
-            if($script:Routes.ContainsKey($channelKey)) {
-
-                Say "ROUTE MATCH" Green
-
+            if(
+                $channelKey -and
+                $script:Routes.ContainsKey($channelKey)
+            ) {
                 $soundPath = $script:Routes[$channelKey]
                 $reason = "ROUTED channel=#$channelKey"
             }
             else {
-
-                Say "DEFAULT ROUTE" Yellow
-
                 $soundPath = $script:DefaultSound
-                $reason = "DEFAULT channel=#$channelKey"
+
+                if($channelKey) {
+                    $reason = "DEFAULT channel=#$channelKey"
+                }
+                else {
+                    $reason = "DEFAULT channel=unknown"
+                }
             }
 
-            # Playback remains the priority.
+
+            # Sound happens before any disk/UI activity work.
             Play-Sound `
                 -Path $soundPath `
                 -Reason $reason
 
-            # Give Slack a moment to expose the remaining toast text.
-            Start-Sleep -Milliseconds 75
 
             Write-RecentNotification `
-                -Source "#$channelKey" `
+                -Source $source `
                 -SoundPath $soundPath `
-                -Anchor $c `
-                -Exclude @(
-                    $channelKey,
-                    "#$channelKey"
-                )
+                -Message $messageText
+
+
+            $recentMessageFires += [pscustomobject]@{
+                Time    = Get-Date
+                Source  = $source
+                X       = [double]$m.X
+                Y       = [double]$m.Y
+                W       = [double]$m.W
+                H       = [double]$m.H
+                Message = $messageText
+            }
+
+            $newSoundsThisScan++
         }
 
-        # Allow a new toast to use the same RuntimeId after the old one disappears.
-        foreach($key in @($activeChannels.Keys)) {
 
-            if(!$presentChannels.ContainsKey($key)) {
-                $activeChannels.Remove($key)
+        # Message runtime IDs can be reused after the old card leaves.
+        foreach($key in @($activeMessages.Keys)) {
+
+            if(!$presentMessages.ContainsKey($key)) {
+                $activeMessages.Remove($key)
             }
         }
 
-        # Keep recent toast-instance memory tiny.
-        $recentToastFires = @(
-            $recentToastFires |
+
+        $recentMessageFires = @(
+            $recentMessageFires |
             Where-Object {
-                (($now - $_.Time).TotalSeconds) -le 3
+                ((Get-Date) - $_.Time).TotalSeconds -le 3
             }
         )
 
 
-        $recentPrimaryToasts = @(
-            $recentPrimaryToasts |
-            Where-Object {
-                (($now - $_.Time).TotalSeconds) -le 3
-            }
-        )
+        # ----------------------------------------------------
+        # FALLBACK
+        #
+        # Only for Slack notification shells that never expose
+        # a Message object at all.
+        # ----------------------------------------------------
 
-        # ------------------------------------------------------------
-        # FALLBACK PATH
-        # For DMs / unusual Slack notifications with OpenTeam but no
-        # OpenChannel, wait briefly before using DEFAULT.
-        # ------------------------------------------------------------
-
-        $teams = Get-ToastTeams
         $presentTeams = @{}
 
         foreach($key in $teams.Keys) {
@@ -902,6 +968,7 @@ while($true) {
                 }
             }
         }
+
 
         foreach($key in @($pendingTeams.Keys)) {
 
@@ -921,59 +988,63 @@ while($true) {
 
             $team = $teams[$key]
 
-            # If a channel is exposed, the primary channel path owns
-            # this notification. Never play a second/default sound here.
-            $channel = Find-ChannelForToast `
-                -Team $team `
-                -Channels $channels
 
-            if($channel) {
-                $pendingTeams.Remove($key)
-                continue
-            }
+            # If any Message exists in the same toast area, that
+            # Message path owns the notification.
+            $ownedByMessage = $false
 
-            # OpenChannel may disappear before this fallback timer
-            # expires. Match this OpenTeam against a channel toast that
-            # already fired at the same place/time.
-            $ownedByPrimary = $false
-            $teamFirstSeen = $pendingTeams[$key].FirstSeen
+            foreach($m in $messages) {
 
-            foreach($p in $recentPrimaryToasts) {
+                $horizontal =
+                    ($m.X -le ($team.X + $team.W + 120)) -and
+                    (($m.X + $m.W) -ge ($team.X - 120))
 
-                $timeDistance = [Math]::Abs(
-                    ($p.Time - $teamFirstSeen).TotalMilliseconds
-                )
-
-                $horizontalOverlap =
-                    ($p.X -le ($team.X + $team.W + 80)) -and
-                    (($p.X + $p.W) -ge ($team.X - 80))
-
-                $verticalDistance = [Math]::Abs(
-                    $p.Y - ($team.Y + $team.H)
-                )
+                $dy = $m.Y - $team.Y
 
                 if(
-                    $timeDistance -lt 500 -and
-                    $horizontalOverlap -and
-                    $verticalDistance -lt 160
+                    $horizontal -and
+                    $dy -ge -30 -and
+                    $dy -le 550
                 ) {
-                    $ownedByPrimary = $true
+                    $ownedByMessage = $true
                     break
                 }
             }
 
-            if($ownedByPrimary) {
-                Write-RouterLog "FALLBACK_SUPPRESSED primary-owned"
+
+            # Message may already have disappeared by fallback time.
+            if(!$ownedByMessage) {
+
+                foreach($f in $recentMessageFires) {
+
+                    $horizontal =
+                        ($f.X -le ($team.X + $team.W + 120)) -and
+                        (($f.X + $f.W) -ge ($team.X - 120))
+
+                    if(
+                        $horizontal -and
+                        (((Get-Date) - $f.Time).TotalMilliseconds -lt 1500)
+                    ) {
+                        $ownedByMessage = $true
+                        break
+                    }
+                }
+            }
+
+
+            if($ownedByMessage) {
+                Write-RouterLog "FALLBACK_SUPPRESSED message-owned"
                 $pendingTeams.Remove($key)
                 continue
             }
 
+
             $fallbackKey = [string]$team.Name
-            $lastFallback = $recentFallbackFires[$fallbackKey]
+            $last = $recentFallbackFires[$fallbackKey]
 
             if(
-                $lastFallback -and
-                (((Get-Date) - $lastFallback).TotalMilliseconds -lt 600)
+                $last -and
+                (((Get-Date) - $last).TotalMilliseconds -lt 800)
             ) {
                 $pendingTeams.Remove($key)
                 continue
@@ -981,32 +1052,18 @@ while($true) {
 
             $recentFallbackFires[$fallbackKey] = Get-Date
 
-            Say "----------------------------------------" DarkCyan
-            Say "SLACK TOAST DETECTED" Cyan
-
-            if($team.Name) {
-                Say "Workspace: $($team.Name)" DarkGray
-            }
-
-            Say "Channel:   [none exposed]" Yellow
-            Say "DEFAULT ROUTE" Yellow
-
             Play-Sound `
                 -Path $script:DefaultSound `
                 -Reason "DEFAULT channel=unknown"
 
-            Start-Sleep -Milliseconds 75
-
             Write-RecentNotification `
-                -Source "DM / Slack" `
+                -Source "Slack" `
                 -SoundPath $script:DefaultSound `
-                -Anchor $team `
-                -Exclude @(
-                    [string]$team.Name
-                )
+                -Message ""
 
             $pendingTeams.Remove($key)
         }
+
 
         foreach($key in @($activeTeams.Keys)) {
 
@@ -1020,17 +1077,15 @@ while($true) {
         if(((Get-Date) - $lastBeat).TotalSeconds -ge 10) {
 
             Say (
-                "[alive] routes={0} channels={1} teams={2}" -f `
-                $script:Routes.Count,
-                $activeChannels.Count,
-                $activeTeams.Count
+                "[alive] messages={0} routes={1}" -f `
+                $activeMessages.Count,
+                $script:Routes.Count
             ) DarkGray
 
             $lastBeat = Get-Date
         }
     }
     catch {
-
         Say "ROUTER ERROR: $($_.Exception.Message)" Red
         Write-RouterLog "ERROR $($_.Exception.Message)"
 
