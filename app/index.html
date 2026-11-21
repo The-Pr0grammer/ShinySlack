@@ -254,6 +254,209 @@
   border-color:#28543d !important;
   background:#0d1d17 !important;
 }
+
+/* SHINY-TOOLTIPS-V2-START */
+
+#ssHelpTooltip{
+    position:fixed;
+    z-index:2147483647;
+
+    width:max-content;
+    max-width:min(360px, calc(100vw - 32px));
+
+    padding:11px 13px;
+
+    background:
+        linear-gradient(
+            145deg,
+            rgba(19,27,41,.985),
+            rgba(8,13,22,.985)
+        );
+
+    border:
+        1px solid
+        rgba(85,216,255,.28);
+
+    border-radius:12px;
+
+    box-shadow:
+        0 14px 36px rgba(0,0,0,.46),
+        0 0 0 1px rgba(255,255,255,.025),
+        0 0 22px rgba(85,216,255,.055);
+
+    color:#aebbd0;
+
+    font:
+        12.5px/1.48
+        "Segoe UI",
+        system-ui,
+        sans-serif;
+
+    text-align:left;
+    white-space:normal;
+
+    opacity:0;
+    visibility:hidden;
+
+    pointer-events:none;
+
+    transform:
+        translateY(4px)
+        scale(.985);
+
+    transition:
+        opacity 110ms ease,
+        transform 110ms ease,
+        visibility 110ms ease;
+}
+
+
+#ssHelpTooltip.show{
+    opacity:1;
+    visibility:visible;
+
+    transform:
+        translateY(0)
+        scale(1);
+}
+
+
+#ssHelpTooltip .ssTipTitle{
+    margin-bottom:4px;
+
+    color:#f5f8fc;
+
+    font-size:12.5px;
+    font-weight:800;
+    line-height:1.25;
+}
+
+
+#ssHelpTooltip .ssTipBody{
+    color:#a6b4c8;
+}
+
+
+#ssHelpTooltip::after{
+    content:"";
+
+    position:absolute;
+
+    left:var(--ss-arrow-x,50%);
+
+    width:8px;
+    height:8px;
+
+    background:#101827;
+}
+
+
+#ssHelpTooltip[data-placement="top"]::after{
+    bottom:-5px;
+
+    border-right:
+        1px solid
+        rgba(85,216,255,.28);
+
+    border-bottom:
+        1px solid
+        rgba(85,216,255,.28);
+
+    transform:
+        translateX(-50%)
+        rotate(45deg);
+}
+
+
+#ssHelpTooltip[data-placement="bottom"]::after{
+    top:-5px;
+
+    border-left:
+        1px solid
+        rgba(85,216,255,.28);
+
+    border-top:
+        1px solid
+        rgba(85,216,255,.28);
+
+    transform:
+        translateX(-50%)
+        rotate(45deg);
+}
+
+
+/* ---------------------------------------------------------
+   Status cards: informative hover, not button-like.
+   --------------------------------------------------------- */
+
+.stat[data-ss-tip]{
+    cursor:help;
+
+    transition:
+        transform 120ms ease,
+        border-color 120ms ease,
+        background-color 120ms ease,
+        box-shadow 120ms ease;
+}
+
+
+.stat[data-ss-tip]:hover,
+.stat[data-ss-tip]:focus-visible{
+    transform:
+        translateY(-1px);
+
+    border-color:
+        rgba(85,216,255,.24);
+
+    box-shadow:
+        0 8px 24px rgba(0,0,0,.13),
+        0 0 0 1px rgba(85,216,255,.025);
+
+    outline:none;
+}
+
+
+/* ---------------------------------------------------------
+   Controls with contextual help
+   --------------------------------------------------------- */
+
+button[data-ss-tip]{
+    position:relative;
+}
+
+
+button[data-ss-tip]:hover{
+    border-color:#3a4b61;
+}
+
+
+/*
+ * Allow informational hover even while Apply Sound
+ * is disabled.
+ */
+#apply:disabled{
+    pointer-events:auto;
+}
+
+
+/* Channel labels/sound filenames also expose help. */
+
+.channelName[data-ss-tip]{
+    cursor:pointer;
+}
+
+
+.channelSound[data-ss-tip]{
+    cursor:help;
+}
+
+
+/* Keep tooltip clear of target and mouse. */
+[data-ss-tip]{
+    scroll-margin:16px;
+}
+
+/* SHINY-TOOLTIPS-V2-END */
 </style>
 </head>
 <body>
@@ -1360,6 +1563,803 @@ if(historyBackfill){
     };
 }
 
+
+/* SHINY-TOOLTIPS-JS-V2-START */
+
+(function(){
+
+    const existing=
+        document.getElementById(
+            'ssHelpTooltip'
+        );
+
+    if(existing){
+        existing.remove();
+    }
+
+
+    const tip=
+        document.createElement(
+            'div'
+        );
+
+    tip.id=
+        'ssHelpTooltip';
+
+    tip.setAttribute(
+        'role',
+        'tooltip'
+    );
+
+
+    const tipTitle=
+        document.createElement(
+            'div'
+        );
+
+    tipTitle.className=
+        'ssTipTitle';
+
+
+    const tipBody=
+        document.createElement(
+            'div'
+        );
+
+    tipBody.className=
+        'ssTipBody';
+
+
+    tip.appendChild(
+        tipTitle
+    );
+
+    tip.appendChild(
+        tipBody
+    );
+
+    document.body.appendChild(
+        tip
+    );
+
+
+    let activeTarget=null;
+    let showTimer=null;
+
+
+    function setHelp(
+        element,
+        title,
+        body
+    ){
+
+        if(!element){
+            return;
+        }
+
+
+        element.setAttribute(
+            'data-ss-tip-title',
+            title
+        );
+
+        element.setAttribute(
+            'data-ss-tip',
+            body
+        );
+
+
+        /*
+         * Kill native browser tooltip.
+         */
+        element.removeAttribute(
+            'title'
+        );
+    }
+
+
+    function channelForRow(row){
+
+        if(!row){
+            return '';
+        }
+
+
+        const el=
+            row.querySelector(
+                '.channelName'
+            );
+
+
+        return (
+            el?.textContent||
+            ''
+        ).trim();
+    }
+
+
+    function decorateStaticHelp(){
+
+        /* -------------------------------------------------
+           TOP DASHBOARD STATUS CARDS
+           ------------------------------------------------- */
+
+        const slack=
+            document.getElementById(
+                'slack'
+            )?.closest('.stat');
+
+
+        setHelp(
+            slack,
+            'Slack',
+            'Shows whether the Slack desktop app is currently running on this PC.'
+        );
+
+
+        const cache=
+            document.getElementById(
+                'cache'
+            )?.closest('.stat');
+
+
+        setHelp(
+            cache,
+            'Slack cache',
+            'Shows whether Slack’s local notification-audio cache is present. ShinySlack patches this cache to install your custom notification sound.'
+        );
+
+
+        const sound=
+            document.getElementById(
+                'health'
+            )?.closest('.stat');
+
+
+        setHelp(
+            sound,
+            'Custom sound',
+            'Shows the health of your installed custom Slack notification sound — whether ShinySlack is configured and the sound state is available.'
+        );
+
+
+        const watcher=
+            document.getElementById(
+                'watcher'
+            )?.closest('.stat');
+
+
+        let watcherText=
+            'Shows whether ShinySlack’s background watcher is running. The watcher monitors Slack’s cache and repairs the custom sound after Slack rebuilds it.';
+
+
+        const watcherValue=
+            document.getElementById(
+                'watcher'
+            );
+
+
+        /*
+         * Preserve useful watcher detail if an older build
+         * wrote it into title=.
+         */
+        if(
+            watcherValue?.getAttribute(
+                'title'
+            )
+        ){
+
+            watcherText+=
+                '\n\nCurrent: '+
+                watcherValue.getAttribute(
+                    'title'
+                );
+        }
+
+
+        watcherValue?.removeAttribute(
+            'title'
+        );
+
+
+        setHelp(
+            watcher,
+            'Watcher',
+            watcherText
+        );
+
+
+        /* -------------------------------------------------
+           PRIMARY SOUND CONTROLS
+           ------------------------------------------------- */
+
+        setHelp(
+            document.getElementById(
+                'apply'
+            ),
+            'Apply Sound',
+            'Installs the selected MP3 as your Slack notification sound. On first use, ShinySlack also installs and configures the local sound watcher.'
+        );
+
+
+        setHelp(
+            document.getElementById(
+                'repair'
+            ),
+            'Repair Now',
+            'Repairs your custom notification sound if Slack rebuilt or replaced its cache. Slack may briefly close and relaunch while the repair runs.'
+        );
+
+
+        setHelp(
+            document.getElementById(
+                'refresh'
+            ),
+            'Refresh Status',
+            'Immediately re-checks Slack, its cache, the custom sound state, and the background watcher, then refreshes the dashboard indicators.'
+        );
+    }
+
+
+    function decorateRouteHelp(root=document){
+
+        const rows=
+            root.matches?.('.channelRoute')
+                ? [root]
+                : [
+                    ...root.querySelectorAll?.(
+                        '.channelRoute'
+                    )||[]
+                  ];
+
+
+        rows.forEach(row=>{
+
+            const channel=
+                channelForRow(
+                    row
+                );
+
+
+            const name=
+                row.querySelector(
+                    '.channelName'
+                );
+
+
+            if(name){
+
+                const linked=
+                    !!row.querySelector(
+                        '.deepLinked'
+                    );
+
+
+                setHelp(
+                    name,
+                    linked
+                        ? 'Open linked channel'
+                        : 'Open Slack',
+                    linked
+                        ? 'Open '+channel+' directly in the Slack desktop app.'
+                        : 'Open Slack. Use Link on this row to connect '+channel+' to its exact Slack Channel ID.'
+                );
+            }
+
+
+            const sound=
+                row.querySelector(
+                    '.channelSound'
+                );
+
+
+            if(sound){
+
+                setHelp(
+                    sound,
+                    'Assigned sound',
+                    (
+                        sound.textContent||
+                        'No sound assigned'
+                    ).trim()
+                );
+            }
+
+
+            row.querySelectorAll(
+                'button'
+            ).forEach(button=>{
+
+                const label=
+                    (
+                        button.textContent||
+                        ''
+                    ).trim();
+
+
+                if(label==='Change'){
+
+                    setHelp(
+                        button,
+                        'Change sound',
+                        'Choose a different MP3 notification sound for '+channel+'.'
+                    );
+
+                    return;
+                }
+
+
+                if(label==='Link'){
+
+                    setHelp(
+                        button,
+                        'Link Slack channel',
+                        'Connect '+channel+' to its Slack Channel ID. Once linked, ShinySlack alerts and Activity cards can open that exact channel.'
+                    );
+
+                    return;
+                }
+
+
+                if(
+                    label.startsWith(
+                        'Linked'
+                    )
+                ){
+
+                    setHelp(
+                        button,
+                        'Deep link active',
+                        channel+' is linked to its exact Slack channel. Click to change the Channel ID or unlink it.'
+                    );
+
+                    return;
+                }
+
+
+                if(label==='Remove'){
+
+                    setHelp(
+                        button,
+                        'Remove route',
+                        'Remove '+channel+' from Channel Routes. Its custom sound and saved deep link will also be removed.'
+                    );
+                }
+            });
+        });
+    }
+
+
+    function convertNativeTitles(root=document){
+
+        const elements=[];
+
+
+        if(
+            root.nodeType===1 &&
+            root.hasAttribute?.('title')
+        ){
+
+            elements.push(
+                root
+            );
+        }
+
+
+        if(root.querySelectorAll){
+
+            elements.push(
+                ...root.querySelectorAll(
+                    '[title]'
+                )
+            );
+        }
+
+
+        elements.forEach(el=>{
+
+            const native=
+                el.getAttribute(
+                    'title'
+                );
+
+
+            if(!native){
+                return;
+            }
+
+
+            /*
+             * Existing explicit ShinySlack descriptor wins.
+             */
+            if(
+                !el.hasAttribute(
+                    'data-ss-tip'
+                )
+            ){
+
+                el.setAttribute(
+                    'data-ss-tip',
+                    native
+                );
+            }
+
+
+            el.removeAttribute(
+                'title'
+            );
+        });
+    }
+
+
+    function decorateAll(root=document){
+
+        decorateStaticHelp();
+
+        decorateRouteHelp(
+            root
+        );
+
+        convertNativeTitles(
+            root
+        );
+    }
+
+
+    function positionTip(){
+
+        if(
+            !activeTarget ||
+            !tip.classList.contains(
+                'show'
+            )
+        ){
+            return;
+        }
+
+
+        const targetRect=
+            activeTarget.getBoundingClientRect();
+
+
+        const tipRect=
+            tip.getBoundingClientRect();
+
+
+        const viewportMargin=16;
+        const gap=14;
+
+
+        /*
+         * Prefer above target so cursor remains below
+         * the help card.
+         */
+        let top=
+            targetRect.top-
+            tipRect.height-
+            gap;
+
+
+        let placement=
+            'top';
+
+
+        if(top<viewportMargin){
+
+            top=
+                targetRect.bottom+
+                gap;
+
+            placement=
+                'bottom';
+        }
+
+
+        let left=
+            targetRect.left+
+            targetRect.width/2-
+            tipRect.width/2;
+
+
+        left=
+            Math.max(
+                viewportMargin,
+                Math.min(
+                    left,
+                    window.innerWidth-
+                    tipRect.width-
+                    viewportMargin
+                )
+            );
+
+
+        const arrowX=
+            Math.max(
+                16,
+                Math.min(
+                    tipRect.width-16,
+                    (
+                        targetRect.left+
+                        targetRect.width/2
+                    )-
+                    left
+                )
+            );
+
+
+        tip.style.left=
+            Math.round(left)+'px';
+
+        tip.style.top=
+            Math.round(top)+'px';
+
+
+        tip.style.setProperty(
+            '--ss-arrow-x',
+            Math.round(arrowX)+'px'
+        );
+
+
+        tip.dataset.placement=
+            placement;
+    }
+
+
+    function showTip(target){
+
+        if(!target){
+            return;
+        }
+
+
+        const body=
+            target.getAttribute(
+                'data-ss-tip'
+            );
+
+
+        if(!body){
+            return;
+        }
+
+
+        clearTimeout(
+            showTimer
+        );
+
+
+        activeTarget=
+            target;
+
+
+        tipTitle.textContent=
+            target.getAttribute(
+                'data-ss-tip-title'
+            )||'';
+
+
+        tipTitle.style.display=
+            tipTitle.textContent
+                ? ''
+                : 'none';
+
+
+        /*
+         * Preserve newlines while keeping safe textContent.
+         */
+        tipBody.style.whiteSpace=
+            'pre-line';
+
+        tipBody.textContent=
+            body;
+
+
+        showTimer=
+            setTimeout(
+                ()=>{
+
+                    tip.classList.add(
+                        'show'
+                    );
+
+
+                    requestAnimationFrame(
+                        positionTip
+                    );
+                },
+                240
+            );
+    }
+
+
+    function hideTip(){
+
+        clearTimeout(
+            showTimer
+        );
+
+
+        tip.classList.remove(
+            'show'
+        );
+
+
+        activeTarget=
+            null;
+    }
+
+
+    /* -----------------------------------------------------
+       POINTER
+       ----------------------------------------------------- */
+
+    document.addEventListener(
+        'pointerover',
+        event=>{
+
+            const target=
+                event.target.closest?.(
+                    '[data-ss-tip]'
+                );
+
+
+            if(
+                !target ||
+                target===activeTarget
+            ){
+                return;
+            }
+
+
+            showTip(
+                target
+            );
+        },
+        true
+    );
+
+
+    document.addEventListener(
+        'pointerout',
+        event=>{
+
+            if(!activeTarget){
+                return;
+            }
+
+
+            const target=
+                event.target.closest?.(
+                    '[data-ss-tip]'
+                );
+
+
+            if(
+                target!==activeTarget
+            ){
+                return;
+            }
+
+
+            if(
+                event.relatedTarget &&
+                activeTarget.contains(
+                    event.relatedTarget
+                )
+            ){
+                return;
+            }
+
+
+            hideTip();
+        },
+        true
+    );
+
+
+    document.addEventListener(
+        'pointerdown',
+        hideTip,
+        true
+    );
+
+
+    /* -----------------------------------------------------
+       KEYBOARD ACCESSIBILITY
+       ----------------------------------------------------- */
+
+    document.addEventListener(
+        'focusin',
+        event=>{
+
+            const target=
+                event.target.closest?.(
+                    '[data-ss-tip]'
+                );
+
+
+            if(target){
+
+                showTip(
+                    target
+                );
+            }
+        }
+    );
+
+
+    document.addEventListener(
+        'focusout',
+        hideTip
+    );
+
+
+    /* -----------------------------------------------------
+       DYNAMIC ROUTES
+       ----------------------------------------------------- */
+
+    const observer=
+        new MutationObserver(
+            mutations=>{
+
+                mutations.forEach(
+                    mutation=>{
+
+                        mutation.addedNodes.forEach(
+                            node=>{
+
+                                if(
+                                    node.nodeType===1
+                                ){
+
+                                    decorateAll(
+                                        node
+                                    );
+                                }
+                            }
+                        );
+                    }
+                );
+
+
+                /*
+                 * Route state can change Link -> Linked ✓
+                 * without rebuilding the entire page.
+                 */
+                decorateRouteHelp(
+                    document
+                );
+            }
+        );
+
+
+    observer.observe(
+        document.body,
+        {
+            childList:true,
+            subtree:true
+        }
+    );
+
+
+    window.addEventListener(
+        'resize',
+        positionTip
+    );
+
+
+    window.addEventListener(
+        'scroll',
+        positionTip,
+        true
+    );
+
+
+    decorateAll();
+
+})();
+
+/* SHINY-TOOLTIPS-JS-V2-END */
 function normalizeChannel(v){
   return (v||'').trim().replace(/^#/,'');
 }
