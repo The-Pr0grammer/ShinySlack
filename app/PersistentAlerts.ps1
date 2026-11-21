@@ -601,6 +601,13 @@ function Render-Expanded {
 
     try {
         $form.Controls.Clear()
+
+        # Reset WinForms virtual scroll origin before rebuilding.
+        # Without this, a previous scroll position can leave a
+        # large blank area above the recreated header/cards.
+        $form.AutoScroll = $false
+        $form.AutoScrollPosition = [Drawing.Point]::Empty
+        $form.AutoScrollMinSize = [Drawing.Size]::Empty
         $form.AutoScroll = $true
         $form.Width = 410
 
@@ -624,7 +631,7 @@ function Render-Expanded {
 
         $header.Left = 0
         $header.Top = 0
-        $header.Width = 410
+        $header.Width = 390
         $header.Height = 32
 
         $header.BackColor =
@@ -700,7 +707,7 @@ function Render-Expanded {
         $minus =
             New-Button '-' 28
 
-        $minus.Left = 337
+        $minus.Left = 317
         $minus.Top = 4
         $minus.Height = 24
 
@@ -737,7 +744,7 @@ function Render-Expanded {
         $closeAll =
             New-Button 'X' 28
 
-        $closeAll.Left = 369
+        $closeAll.Left = 349
         $closeAll.Top = 4
         $closeAll.Height = 24
 
@@ -814,7 +821,7 @@ function Render-Expanded {
 
             $shell.Left = 0
             $shell.Top = $top
-            $shell.Width = 410
+            $shell.Width = 390
             $shell.Height = 66
 
             $shell.BackColor =
@@ -842,7 +849,7 @@ function Render-Expanded {
 
             $card.Left = 1
             $card.Top = 1
-            $card.Width = 408
+            $card.Width = 388
             $card.Height = 64
 
             $card.BackColor =
@@ -946,7 +953,7 @@ function Render-Expanded {
                     New-Object Drawing.RectangleF(
                         15,
                         0,
-                        262,
+                        240,
                         64
                     )
 
@@ -1034,7 +1041,7 @@ function Render-Expanded {
             $time =
                 New-Object System.Windows.Forms.Label
 
-            $time.Left = 282
+            $time.Left = 264
             $time.Top = 22
             $time.Width = 74
             $time.Height = 20
@@ -1064,7 +1071,7 @@ function Render-Expanded {
             $x =
                 New-Button 'X' 28
 
-            $x.Left = 369
+            $x.Left = 349
             $x.Top = 20
             $x.Height = 24
             $x.Tag = $a.Id
@@ -1159,7 +1166,7 @@ function Add-Alert {
 
     if(
         $Line -notmatch
-        '^(?<stamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) (?<kind>ROUTED|DEFAULT|STACK_EXTRA|STACK_EXTRA_DEFAULT) channel=(?<channel>\S+) sound=(?<sound>.+?) backend=(?<backend>\S+)$'
+        '^(?<stamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) (?<kind>ROUTED|DEFAULT|STACK_EXTRA|STACK_EXTRA_DEFAULT) channel=(?<channel>\S+) sound=(?<sound>.+?) backend=(?<backend>\S+)(?:\s+.*)?$'
     ){
         return
     }

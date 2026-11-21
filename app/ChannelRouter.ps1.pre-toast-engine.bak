@@ -1,0 +1,352 @@
+param(
+    [int]$PollMilliseconds = 200
+)
+
+$ErrorActionPreference = "Stop"
+
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
+Add-Type -AssemblyName PresentationCore
+
+$script:Build = "CHANNEL-ROUTER-V1"
+
+$script:Root = Join-Path $env:LOCALAPPDATA "ShinySlack"
+$script:ConfigPath = Join-Path $script:Root "channel-routes.json"
+$script:LogPath = Join-Path $script:Root "channel-router.log"
+
+$script:Routes = @{}
+$script:Enabled = $true
+$script:Volume = 1.0
+$script:DefaultSound = $null
+$script:ConfigStamp = $null
+
+$script:Players = New-Object System.Collections.ArrayList
+
+if(!(Test-Path $script:Root)) {
+    New-Item -ItemType Directory -Path $script:Root -Force | Out-Null
+}
+
+function Say {
+    param(
+        [string]$Text,
+        [ConsoleColor]$Color = [ConsoleColor]::Gray
+    )
+
+    Write-Host $Text -ForegroundColor $Color
+}
+
+function Write-RouterLog {
+    param([string]$Message)
+
+    $line = "{0} {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"), $Message
+
+    try {
+        Add-Content -LiteralPath $script:LogPath -Value $line -Encoding UTF8
+    } catch {}
+}
+
+function Load-ChannelConfig {
+
+    $routes = @{}
+    $enabled = $true
+    $volume = 1.0
+    $defaultSound = $null
+
+    if(Test-Path $script:ConfigPath) {
+
+        try {
+            $config = Get-Content -LiteralPath $script:ConfigPath -Raw -Encoding UTF8 |
+                ConvertFrom-Json
+
+            if($null -ne $config.enabled) {
+                $enabled = [bool]$config.enabled
+            }
+
+            if($null -ne $config.volume) {
+                $volume = [double]$config.volume
+            }
+
+            if($null -ne $config.defaultSound) {
+                $defaultSound = [string]$config.defaultSound
+            }
+
+            if($volume -lt 0) { $volume = 0 }
+            if($volume -gt 1) { $volume = 1 }
+
+            if($null -ne $config.routes) {
+
+                foreach($property in $config.routes.PSObject.Properties) {
+
+                    $channel = [string]$property.Name
+                    $path = [string]$property.Value
+
+                    if(
+                        -not [string]::IsNullOrWhiteSpace($channel) -and
+                        -not [string]::IsNullOrWhiteSpace($path)
+                    ) {
+                        $routes[$channel.TrimStart("#")] = $path
+                    }
+                }
+            }
+        }
+        catch {
+            Say "CONFIG ERROR: $($_.Exception.Message)" Red
+            Write-RouterLog "CONFIG ERROR: $($_.Exception.Message)"
+            return
+        }
+    }
+
+    $script:Routes = $routes
+    $script:Enabled = $enabled
+    $script:Volume = $volume
+    $script:DefaultSound = $defaultSound
+
+    if(Test-Path $script:ConfigPath) {
+        $script:ConfigStamp =
+            (Get-Item -LiteralPath $script:ConfigPath).LastWriteTimeUtc
+    }
+
+    Say ("Config loaded: {0} route(s), volume={1}" -f $script:Routes.Count,$script:Volume) DarkGray
+}
+
+function Reload-ConfigIfChanged {
+
+    if(!(Test-Path $script:ConfigPath)) {
+        return
+    }
+
+    $stamp = (Get-Item -LiteralPath $script:ConfigPath).LastWriteTimeUtc
+
+    if(
+        $null -eq $script:ConfigStamp -or
+        $stamp -ne $script:ConfigStamp
+    ) {
+        Load-ChannelConfig
+        Say "Channel configuration reloaded." Cyan
+    }
+}
+
+function Cleanup-Players {
+
+    for($i = $script:Players.Count - 1; $i -ge 0; $i--) {
+
+        $entry = $script:Players[$i]
+
+        if((Get-Date) -ge $entry.Expires) {
+
+            try {
+                $entry.Player.Stop()
+                $entry.Player.Close()
+            } catch {}
+
+            $script:Players.RemoveAt($i)
+        }
+    }
+}
+
+function Play-ChannelSound {
+    param(
+        [string]$Path,
+        [string]$Channel
+    )
+
+    if(!(Test-Path -LiteralPath $Path)) {
+
+        Say "MISSING SOUND: $Path" Red
+        Write-RouterLog "MISSING channel=#$Channel path=$Path"
+        return
+    }
+
+    try {
+        $fullPath = [IO.Path]::GetFullPath($Path)
+
+        $player = New-Object System.Windows.Media.MediaPlayer
+        $player.Volume = $script:Volume
+        $player.Open([Uri]$fullPath)
+        $player.Play()
+
+        [void]$script:Players.Add(
+            [pscustomobject]@{
+                Player = $player
+                Expires = (Get-Date).AddSeconds(45)
+            }
+        )
+
+        $fileName = [IO.Path]::GetFileName($fullPath)
+
+        Say "PLAYING -> $fileName" Green
+        Write-RouterLog "ROUTED channel=#$Channel sound=$fileName"
+    }
+    catch {
+        Say "PLAYBACK ERROR: $($_.Exception.Message)" Red
+        Write-RouterLog "PLAYBACK ERROR channel=#$Channel error=$($_.Exception.Message)"
+    }
+}
+
+function Find-Route {
+    param([string]$Channel)
+
+    if($script:Routes.ContainsKey($Channel)) {
+        return [string]$script:Routes[$Channel]
+    }
+
+    return $null
+}
+
+$screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+
+$desktop =
+    [System.Windows.Automation.AutomationElement]::RootElement
+
+$classCondition =
+    New-Object System.Windows.Automation.PropertyCondition -ArgumentList @(
+        [System.Windows.Automation.AutomationElement]::ClassNameProperty,
+        "OpenChannel"
+    )
+
+Load-ChannelConfig
+
+Say ""
+Say "ShinySlack Channel Router" Cyan
+Say "=========================" DarkCyan
+Say ""
+Say "Build: $script:Build" DarkGray
+Say "Watching Slack toast OpenChannel elements." Green
+Say "Mapped channels play their assigned MP3." Green
+Say "Unmapped channels keep normal Slack behavior." Yellow
+Say ""
+Say "Config: $script:ConfigPath" DarkGray
+Say "Log:    $script:LogPath" DarkGray
+Say ""
+Say "READY." Green
+Say ""
+
+Write-RouterLog "START build=$script:Build"
+
+$active = @{}
+$lastBeat = Get-Date
+
+while($true) {
+
+    try {
+
+        Reload-ConfigIfChanged
+        Cleanup-Players
+
+        $current = @{}
+
+        $elements = $desktop.FindAll(
+            [System.Windows.Automation.TreeScope]::Descendants,
+            $classCondition
+        )
+
+        foreach($element in $elements) {
+
+            try {
+
+                $name = [string]$element.Current.Name
+
+                if([string]::IsNullOrWhiteSpace($name)) {
+                    continue
+                }
+
+                $rect = $element.Current.BoundingRectangle
+
+                # Only accept OpenChannel links inside Slack's toast zone.
+                if(
+                    $rect.X -lt ($screen.Right - 550) -or
+                    $rect.Y -lt ($screen.Bottom - 500)
+                ) {
+                    continue
+                }
+
+                $channel = $name.Trim()
+
+                if($channel.StartsWith("#")) {
+                    $channel = $channel.Substring(1)
+                }
+
+                if([string]::IsNullOrWhiteSpace($channel)) {
+                    continue
+                }
+
+                $runtimeId = ""
+
+                try {
+                    $runtimeId = ($element.GetRuntimeId() -join ".")
+                } catch {}
+
+                $key = "{0}|{1}|{2}|{3}" -f `
+                    $channel,
+                    $runtimeId,
+                    [int]$rect.X,
+                    [int]$rect.Y
+
+                $current[$key] = $true
+
+                if(-not $active.ContainsKey($key)) {
+
+                    Say "----------------------------------------" DarkCyan
+                    Say "SLACK CHANNEL DETECTED" Cyan
+                    Say "#$channel" White
+
+                    if(-not $script:Enabled) {
+
+                        Say "Router disabled in config." Yellow
+                        continue
+                    }
+
+                    $soundPath = Find-Route $channel
+
+                    if($null -ne $soundPath) {
+
+                        Say "ROUTE MATCH" Green
+                        Play-ChannelSound `
+                            -Path $soundPath `
+                            -Channel $channel
+                    }
+                    else {
+
+                        if(
+                            -not [string]::IsNullOrWhiteSpace($script:DefaultSound) -and
+                            (Test-Path -LiteralPath $script:DefaultSound)
+                        ) {
+                            Say "DEFAULT ROUTE" Yellow
+
+                            Play-ChannelSound `
+                                -Path $script:DefaultSound `
+                                -Channel $channel
+                        }
+                        else {
+                            Say "No route and no default configured." Yellow
+                        }
+                    }
+                }
+            }
+            catch {}
+        }
+
+        $active = $current
+
+        if(((Get-Date) - $lastBeat).TotalSeconds -ge 10) {
+
+            Say ("[alive] routes={0} players={1}" -f `
+                $script:Routes.Count,
+                $script:Players.Count
+            ) DarkGray
+
+            $lastBeat = Get-Date
+        }
+    }
+    catch {
+
+        Say "ROUTER ERROR: $($_.Exception.Message)" Red
+        Write-RouterLog "ROUTER ERROR: $($_.Exception.Message)"
+
+        Start-Sleep -Milliseconds 750
+    }
+
+    Start-Sleep -Milliseconds $PollMilliseconds
+}
+

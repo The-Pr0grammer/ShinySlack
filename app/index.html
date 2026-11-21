@@ -115,7 +115,71 @@
     padding-top: 14px !important;
     padding-bottom: 14px !important;
 }
-</style>
+
+/* SHINY-AUDIO-CONTROLS-CSS-V2 */
+
+.channelAudioControls{
+  display:flex;
+  align-items:center;
+  gap:14px;
+  margin-top:14px;
+  padding:12px 14px;
+  background:#0b0f17;
+  border:1px solid var(--line);
+  border-radius:14px;
+}
+
+.audioMuteButton{
+  min-width:92px;
+  padding:9px 13px;
+}
+
+.audioMuteButton.muted{
+  color:#ff8fab;
+  border-color:#633044;
+  background:#211018;
+}
+
+.volumeControl{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  min-width:0;
+  flex:1;
+}
+
+.volumeLabel{
+  color:var(--muted);
+  font-size:11px;
+  font-weight:700;
+  letter-spacing:.09em;
+}
+
+#channelVolume{
+  flex:1;
+  min-width:120px;
+  cursor:pointer;
+  accent-color:var(--cyan);
+}
+
+#channelVolumeValue{
+  width:46px;
+  text-align:right;
+  color:var(--cyan);
+  font:12px Consolas,monospace;
+}
+
+@media(max-width:620px){
+
+  .channelAudioControls{
+    flex-direction:column;
+    align-items:stretch;
+  }
+
+  .volumeControl{
+    width:100%;
+  }
+}</style>
 </head>
 <body>
 <div class="wrap">
@@ -163,6 +227,42 @@
           <button id="changeDefaultSound" onclick="const f=document.getElementById('defaultSoundFile');f.value='';f.click()">Change</button>
         </div>
       </div>
+    </div>
+
+    <!-- SHINY-AUDIO-CONTROLS-HTML-V2 -->
+
+    <div class="channelAudioControls">
+
+      <button
+        id="channelMute"
+        class="audioMuteButton"
+        type="button"
+      >
+        Mute
+      </button>
+
+      <div class="volumeControl">
+
+        <span class="volumeLabel">
+          VOLUME
+        </span>
+
+        <input
+          id="channelVolume"
+          type="range"
+          min="0"
+          max="100"
+          step="5"
+          value="100"
+          aria-label="ShinySlack notification volume"
+        >
+
+        <span id="channelVolumeValue">
+          100%
+        </span>
+
+      </div>
+
     </div>
 
     <div class="channelHeaderRow">
@@ -283,6 +383,259 @@ async function api(path,options={}){
   }
 }
 let channelUploadTarget='';
+/* SHINY-AUDIO-CONTROLS-JS-V2 */
+
+let channelAudioState={
+  enabled:true,
+  volume:1
+};
+
+
+function syncChannelAudioControls(c){
+
+  if(!c){
+    return;
+  }
+
+
+  if(typeof c.enabled==='boolean'){
+
+    channelAudioState.enabled=
+      c.enabled;
+  }
+
+
+  if(
+    Number.isFinite(
+      Number(c.volume)
+    )
+  ){
+
+    channelAudioState.volume=
+      Math.max(
+        0,
+        Math.min(
+          1,
+          Number(c.volume)
+        )
+      );
+  }
+
+
+  const mute=
+    $('channelMute');
+
+  const slider=
+    $('channelVolume');
+
+  const value=
+    $('channelVolumeValue');
+
+
+  if(mute){
+
+    mute.textContent=
+      channelAudioState.enabled
+        ? 'Mute'
+        : 'Unmute';
+
+
+    mute.classList.toggle(
+      'muted',
+      !channelAudioState.enabled
+    );
+  }
+
+
+  const percent=
+    Math.round(
+      channelAudioState.volume*100
+    );
+
+
+  if(
+    slider &&
+    document.activeElement!==slider
+  ){
+
+    slider.value=
+      String(percent);
+  }
+
+
+  if(value){
+
+    value.textContent=
+      percent+'%';
+  }
+}
+
+
+async function saveChannelAudioSettings(next){
+
+  const payload={};
+
+
+  if(
+    Object.prototype.hasOwnProperty.call(
+      next,
+      'enabled'
+    )
+  ){
+
+    payload.enabled=
+      !!next.enabled;
+  }
+
+
+  if(
+    Object.prototype.hasOwnProperty.call(
+      next,
+      'volume'
+    )
+  ){
+
+    payload.volume=
+      Math.max(
+        0,
+        Math.min(
+          1,
+          Number(next.volume)
+        )
+      );
+  }
+
+
+  const result=
+    await api(
+      '/api/channel/audio',
+      {
+        method:'POST',
+        headers:{
+          'Content-Type':'application/json'
+        },
+        body:JSON.stringify(payload)
+      }
+    );
+
+
+  syncChannelAudioControls(
+    result
+  );
+}
+
+
+const channelMuteButton=
+  $('channelMute');
+
+
+if(channelMuteButton){
+
+  channelMuteButton.onclick=
+    async()=>{
+
+      const previous=
+        channelAudioState.enabled;
+
+
+      channelMuteButton.disabled=
+        true;
+
+
+      try {
+
+        await saveChannelAudioSettings({
+          enabled:!previous
+        });
+      }
+      catch(e){
+
+        syncChannelAudioControls({
+          enabled:previous,
+          volume:channelAudioState.volume
+        });
+
+
+        show(
+          false,
+          e.message
+        );
+      }
+      finally {
+
+        channelMuteButton.disabled=
+          false;
+      }
+    };
+}
+
+
+const channelVolumeSlider=
+  $('channelVolume');
+
+
+if(channelVolumeSlider){
+
+  channelVolumeSlider.oninput=
+    ()=>{
+
+      const label=
+        $('channelVolumeValue');
+
+
+      if(label){
+
+        label.textContent=
+          channelVolumeSlider.value+'%';
+      }
+    };
+
+
+  // Save only after the user releases/commits the slider.
+  channelVolumeSlider.onchange=
+    async()=>{
+
+      const previous=
+        channelAudioState.volume;
+
+
+      const requested=
+        Number(
+          channelVolumeSlider.value
+        )/100;
+
+
+      channelVolumeSlider.disabled=
+        true;
+
+
+      try {
+
+        await saveChannelAudioSettings({
+          volume:requested
+        });
+      }
+      catch(e){
+
+        syncChannelAudioControls({
+          enabled:channelAudioState.enabled,
+          volume:previous
+        });
+
+
+        show(
+          false,
+          e.message
+        );
+      }
+      finally {
+
+        channelVolumeSlider.disabled=
+          false;
+      }
+    };
+}
+
 
 function normalizeChannel(v){
   return (v||'').trim().replace(/^#/,'');
@@ -400,6 +753,8 @@ async function removeChannelSound(channel){
 
 function renderChannelAudio(s){
   const c=s.channelAudio||{};
+
+  syncChannelAudioControls(c);
 
   const router=$('channelRouter');
 
