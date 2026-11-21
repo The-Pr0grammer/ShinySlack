@@ -5,7 +5,7 @@ Add-Type -AssemblyName System.Drawing
 
 $root = Join-Path $env:LOCALAPPDATA 'ShinySlack'
 $log  = Join-Path $root 'channel-router.log'
-$settingsFile = Join-Path $root 'persistent-alerts.settings.json'
+$settingsFile = Join-Path $root 'persistent-alerts.json'
 
 $created = $false
 $mutex = New-Object System.Threading.Mutex(
@@ -615,9 +615,9 @@ function Render-Expanded {
         }
 
 
-        # ------------------------------------------------------
-        # GLOBAL HEADER
-        # ------------------------------------------------------
+        # =====================================================
+        # HEADER
+        # =====================================================
 
         $header =
             New-Object System.Windows.Forms.Panel
@@ -675,7 +675,7 @@ function Render-Expanded {
 
         $count.Left = 108
         $count.Top = 8
-        $count.Width = 90
+        $count.Width = 100
         $count.Height = 17
         $count.Text = $countText
 
@@ -693,10 +693,14 @@ function Render-Expanded {
             )
 
 
+        # -----------------------------------------------------
+        # GLOBAL MINUS = TUCK ALL
+        # -----------------------------------------------------
+
         $minus =
             New-Button '-' 28
 
-        $minus.Left = 369
+        $minus.Left = 337
         $minus.Top = 4
         $minus.Height = 24
 
@@ -707,26 +711,82 @@ function Render-Expanded {
                 42
             )
 
+        $minus.ForeColor =
+            [Drawing.Color]::FromArgb(
+                184,
+                196,
+                211
+            )
+
         Set-RoundedRegion $minus 8
 
 
         $minus.Add_Click({
+
             $script:Tucked = $true
             $script:TuckStarted = Get-Date
+
             Render-Tucked
+        })
+
+
+        # -----------------------------------------------------
+        # GLOBAL X = DISMISS ALL
+        # -----------------------------------------------------
+
+        $closeAll =
+            New-Button 'X' 28
+
+        $closeAll.Left = 369
+        $closeAll.Top = 4
+        $closeAll.Height = 24
+
+        $closeAll.BackColor =
+            [Drawing.Color]::FromArgb(
+                24,
+                31,
+                42
+            )
+
+        $closeAll.ForeColor =
+            [Drawing.Color]::FromArgb(
+                184,
+                196,
+                211
+            )
+
+        Set-RoundedRegion $closeAll 8
+
+
+        $closeAll.Add_Click({
+
+            try {
+                $script:Alerts.Clear()
+            }
+            catch {
+                while($script:Alerts.Count -gt 0){
+                    $script:Alerts.RemoveAt(
+                        $script:Alerts.Count - 1
+                    )
+                }
+            }
+
+            $script:Tucked = $false
+            $form.Hide()
         })
 
 
         $header.Controls.Add($title)
         $header.Controls.Add($count)
         $header.Controls.Add($minus)
+        $header.Controls.Add($closeAll)
 
         $form.Controls.Add($header)
 
 
-        # ------------------------------------------------------
-        # ALERT CARDS
-        # ------------------------------------------------------
+        # =====================================================
+        # CARDS
+        # =====================================================
 
         $top = 38
 
@@ -737,19 +797,17 @@ function Render-Expanded {
                 Get-Accent $a.EventKey
 
 
-            # Common click handler for every non-X part of card.
             $openSlack = {
                 param($sender,$eventArgs)
 
-                $target =
-                    [string]$sender.Tag
-
-                if($target){
-                    Open-SlackConversation `
-                        -Channel $target
-                }
+                Open-SlackConversation `
+                    -Channel ([string]$sender.Tag)
             }
 
+
+            # -------------------------------------------------
+            # BORDER SHELL
+            # -------------------------------------------------
 
             $shell =
                 New-Object System.Windows.Forms.Panel
@@ -767,11 +825,17 @@ function Render-Expanded {
                 )
 
             $shell.Tag = $a.Channel
-            $shell.Cursor = [Windows.Forms.Cursors]::Hand
+            $shell.Cursor =
+                [Windows.Forms.Cursors]::Hand
+
             $shell.Add_Click($openSlack)
 
             Set-RoundedRegion $shell 14
 
+
+            # -------------------------------------------------
+            # CARD
+            # -------------------------------------------------
 
             $card =
                 New-Object System.Windows.Forms.Panel
@@ -789,11 +853,17 @@ function Render-Expanded {
                 )
 
             $card.Tag = $a.Channel
-            $card.Cursor = [Windows.Forms.Cursors]::Hand
+            $card.Cursor =
+                [Windows.Forms.Cursors]::Hand
+
             $card.Add_Click($openSlack)
 
             Set-RoundedRegion $card 13
 
+
+            # -------------------------------------------------
+            # ACCENT RAIL
+            # -------------------------------------------------
 
             $rail =
                 New-Object System.Windows.Forms.Panel
@@ -802,12 +872,19 @@ function Render-Expanded {
             $rail.Top = 0
             $rail.Width = 4
             $rail.Height = 64
-            $rail.BackColor = $accent
 
+            $rail.BackColor = $accent
             $rail.Tag = $a.Channel
-            $rail.Cursor = [Windows.Forms.Cursors]::Hand
+
+            $rail.Cursor =
+                [Windows.Forms.Cursors]::Hand
+
             $rail.Add_Click($openSlack)
 
+
+            # -------------------------------------------------
+            # CHANNEL
+            # -------------------------------------------------
 
             $channel =
                 New-Object System.Windows.Forms.Label
@@ -828,9 +905,15 @@ function Render-Expanded {
                 )
 
             $channel.Tag = $a.Channel
-            $channel.Cursor = [Windows.Forms.Cursors]::Hand
+            $channel.Cursor =
+                [Windows.Forms.Cursors]::Hand
+
             $channel.Add_Click($openSlack)
 
+
+            # -------------------------------------------------
+            # TIME
+            # -------------------------------------------------
 
             $time =
                 New-Object System.Windows.Forms.Label
@@ -852,11 +935,16 @@ function Render-Expanded {
                 )
 
             $time.Tag = $a.Channel
-            $time.Cursor = [Windows.Forms.Cursors]::Hand
+            $time.Cursor =
+                [Windows.Forms.Cursors]::Hand
+
             $time.Add_Click($openSlack)
 
 
-            # X remains dismiss-only.
+            # -------------------------------------------------
+            # INDIVIDUAL X = DISMISS THIS CARD ONLY
+            # -------------------------------------------------
+
             $x =
                 New-Button 'X' 28
 
@@ -897,15 +985,22 @@ function Render-Expanded {
                     ) |
                     Select-Object -First 1
 
+
                 if($target){
+
                     [void]$script:Alerts.Remove(
                         $target
                     )
                 }
 
+
                 Render-Expanded
             })
 
+
+            # -------------------------------------------------
+            # SOUND
+            # -------------------------------------------------
 
             $sound =
                 New-Object System.Windows.Forms.Label
@@ -932,7 +1027,9 @@ function Render-Expanded {
                 )
 
             $sound.Tag = $a.Channel
-            $sound.Cursor = [Windows.Forms.Cursors]::Hand
+            $sound.Cursor =
+                [Windows.Forms.Cursors]::Hand
+
             $sound.Add_Click($openSlack)
 
 
@@ -945,6 +1042,7 @@ function Render-Expanded {
             $shell.Controls.Add($card)
             $form.Controls.Add($shell)
 
+
             $top += 72
         }
 
@@ -955,7 +1053,9 @@ function Render-Expanded {
                 610
             )
 
+
         Position-Form
+
 
         if(!$form.Visible){
             $form.Show()
