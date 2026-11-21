@@ -57,12 +57,40 @@ function Say {
 function Write-RouterLog {
     param([string]$Message)
 
+    if(
+        [string]::IsNullOrWhiteSpace(
+            $Message
+        )
+    ){
+        return
+    }
+
+
+    # Do not write high-frequency steady-state polling noise.
+    # This could generate enormous logs while adding no useful
+    # information to Activity or Persistent Alerts.
+    if(
+        $Message.StartsWith(
+            'STACK_STABLE ',
+            [StringComparison]::Ordinal
+        )
+    ){
+        return
+    }
+
+
     try {
+
         Add-Content `
             -LiteralPath $script:LogPath `
-            -Value ("{0} {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"),$Message) `
+            -Value (
+                "{0} {1}" -f
+                (Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"),
+                $Message
+            ) `
             -Encoding UTF8
-    } catch {}
+    }
+    catch {}
 }
 
 function Load-Config {
@@ -159,46 +187,111 @@ function Cleanup-Players {
 function Get-LowLatencyPlayer {
     param([string]$Path)
 
-    if([string]::IsNullOrWhiteSpace($Path)) {
+    if(
+        [string]::IsNullOrWhiteSpace(
+            $Path
+        )
+    ){
         return $null
     }
 
-    if(!(Test-Path -LiteralPath $Path)) {
+
+    if(!(Test-Path -LiteralPath $Path)){
         return $null
     }
 
-    $full = [IO.Path]::GetFullPath($Path)
-    $item = Get-Item -LiteralPath $full
 
-    $key = "{0}|{1}" -f `
+    $full =
+        [IO.Path]::GetFullPath(
+            $Path
+        )
+
+
+    $item =
+        Get-Item `
+            -LiteralPath $full
+
+
+    $volume =
+        [Math]::Max(
+            0.0,
+            [Math]::Min(
+                1.0,
+                [double]$script:Volume
+            )
+        )
+
+
+    $volumeKey =
+        $volume.ToString(
+            '0.00',
+            [Globalization.CultureInfo]::InvariantCulture
+        )
+
+
+    # Different volume = different preloaded player.
+    $key =
+        "{0}|{1}|{2}" -f `
         $full,
-        $item.LastWriteTimeUtc.Ticks
+        $item.LastWriteTimeUtc.Ticks,
+        $volumeKey
 
-    if($script:SoundPlayers.ContainsKey($key)) {
+
+    if(
+        $script:SoundPlayers.ContainsKey(
+            $key
+        )
+    ){
         return $script:SoundPlayers[$key]
     }
 
-    $hash = (Get-FileHash `
-        -LiteralPath $full `
-        -Algorithm SHA256).Hash
 
-    $wav = Join-Path `
-        $script:WaveCacheDir `
-        ($hash + ".wav")
+    $hash =
+        (
+            Get-FileHash `
+                -LiteralPath $full `
+                -Algorithm SHA256
+        ).Hash
 
-    if(!(Test-Path -LiteralPath $wav)) {
 
-        $ff = Get-Command ffmpeg.exe `
-            -ErrorAction SilentlyContinue
+    $volumeFileKey =
+        $volumeKey.Replace(
+            '.',
+            '_'
+        )
 
-        if(!$ff) {
-            $ff = Get-Command ffmpeg `
+
+    $wav =
+        Join-Path `
+            $script:WaveCacheDir `
+            (
+                "{0}-v{1}.wav" -f
+                $hash,
+                $volumeFileKey
+            )
+
+
+    if(!(Test-Path -LiteralPath $wav)){
+
+        $ff =
+            Get-Command `
+                ffmpeg.exe `
                 -ErrorAction SilentlyContinue
+
+
+        if(!$ff){
+
+            $ff =
+                Get-Command `
+                    ffmpeg `
+                    -ErrorAction SilentlyContinue
         }
 
-        if(!$ff) {
+
+        if(!$ff){
             throw "ffmpeg is required for low-latency audio."
         }
+
 
         & $ff.Source `
             -loglevel error `
@@ -207,24 +300,33 @@ function Get-LowLatencyPlayer {
             -vn `
             -ac 2 `
             -ar 44100 `
+            -filter:a ("volume={0}" -f $volumeKey) `
             -c:a pcm_s16le `
             $wav
+
 
         if(
             $LASTEXITCODE -ne 0 -or
             !(Test-Path -LiteralPath $wav)
-        ) {
+        ){
             throw "Could not build WAV cache for $full"
         }
     }
 
-    $player = New-Object System.Media.SoundPlayer `
-        -ArgumentList $wav
 
-    # Load the entire WAV NOW, not when the notification arrives.
+    $player =
+        New-Object `
+            System.Media.SoundPlayer `
+            -ArgumentList $wav
+
+
+    # Decode before notification time.
     $player.Load()
 
-    $script:SoundPlayers[$key] = $player
+
+    $script:SoundPlayers[$key] =
+        $player
+
 
     return $player
 }
@@ -268,36 +370,105 @@ function Play-Sound {
         [string]$Reason
     )
 
-    if([string]::IsNullOrWhiteSpace($Path)) {
+
+    if(
+        [string]::IsNullOrWhiteSpace(
+            $Path
+        )
+    ){
         Say "NO SOUND PATH CONFIGURED" Red
         return
     }
 
-    if(!(Test-Path -LiteralPath $Path)) {
+
+    if(!(Test-Path -LiteralPath $Path)){
+
         Say "MISSING SOUND: $Path" Red
-        Write-RouterLog "MISSING $Reason path=$Path"
+
+        Write-RouterLog `
+            "MISSING $Reason path=$Path"
+
         return
     }
 
+
+    $name =
+        [IO.Path]::GetFileName(
+            $Path
+        )
+
+
+    # Mute affects audio only.
+    # The event still goes to Activity + Persistent Alerts.
+    if(
+        !$script:Enabled -or
+        $script:Volume -le 0
+    ){
+
+        Write-RouterLog (
+            "{0} sound={1} backend=MUTED" -f
+            $Reason,
+            $name
+        )
+
+
+        Say (
+            "MUTED -> {0}" -f
+            $name
+        ) DarkGray
+
+        return
+    }
+
+
     try {
 
-        $player = Get-LowLatencyPlayer -Path $Path
+        $player =
+            Get-LowLatencyPlayer `
+                -Path $Path
 
-        if($null -eq $player) {
+
+        if($null -eq $player){
             throw "No audio player available."
         }
 
-        # WAV is already decoded and resident.
+
         $player.Play()
 
-        $name = [IO.Path]::GetFileName($Path)
 
-        Say "PLAYING -> $name" Green
-        Write-RouterLog "$Reason sound=$name backend=WAV"
+        $pct =
+            [Math]::Round(
+                $script:Volume * 100
+            )
+
+
+        Say (
+            "PLAYING -> {0} [{1}%]" -f
+            $name,
+            $pct
+        ) Green
+
+
+        # KEEP THIS EVENT FORMAT STABLE.
+        Write-RouterLog (
+            "{0} sound={1} backend=WAV" -f
+            $Reason,
+            $name
+        )
     }
     catch {
-        Say "PLAYBACK ERROR: $($_.Exception.Message)" Red
-        Write-RouterLog "PLAYBACK_ERROR $Reason $($_.Exception.Message)"
+
+        Say (
+            "PLAYBACK ERROR: {0}" -f
+            $_.Exception.Message
+        ) Red
+
+
+        Write-RouterLog (
+            "PLAYBACK_ERROR {0} {1}" -f
+            $Reason,
+            $_.Exception.Message
+        )
     }
 }
 function Get-RuntimeKey {
@@ -588,6 +759,17 @@ $stackLastSeen  = @{}
 # RuntimeId rebuilds/repaints cannot create ghost primary sounds.
 $primaryChannelSessions = @{}
 
+# GHOST-GUARD-V1
+#
+# Slack can briefly remove/recreate the same toast accessibility
+# tree. Remember identifiers from notifications that actually fired.
+#
+# RuntimeId match = strong identity.
+# Message fingerprint fallback targets the observed ~8 second
+# repaint cycle without creating a broad channel cooldown.
+$recentPrimarySignatures = @{}
+$primarySignatureTtlSeconds = 12
+
 # Remember where/when a channel toast fired so the slower
 # OpenTeam fallback cannot replay the same notification later.
 $recentPrimaryToasts = @()
@@ -644,6 +826,146 @@ while($true) {
             #
             # Same-channel additions are handled by STACK_EXTRA,
             # not by another OpenChannel primary fire.
+            # ------------------------------------------------
+            # GHOST-GUARD-V1
+            # ------------------------------------------------
+
+            $candidateSignatures = @()
+
+
+            # Real UI Automation RuntimeId.
+            #
+            # Get-RuntimeKey's geometry fallback contains "|";
+            # do NOT treat that fallback as persistent identity.
+            if(
+                $elementKey -and
+                $elementKey.IndexOf('|') -lt 0
+            ) {
+
+                $candidateSignatures +=
+                    "runtime|$channelKey|$elementKey"
+            }
+
+
+            # Message fingerprint fallback.
+            #
+            # The text never leaves memory and is never written
+            # to the router log.
+            try {
+
+                $candidateMessages =
+                    @(
+                        Get-ToastMessages `
+                            -Channels @($c) |
+                        Sort-Object Y
+                    )
+
+
+                $messageParts =
+                    @(
+                        $candidateMessages |
+                        ForEach-Object {
+
+                            try {
+
+                                (
+                                    [string]$_.Element.Current.Name
+                                ).Trim()
+                            }
+                            catch {
+                                ''
+                            }
+                        } |
+                        Where-Object {
+                            ![string]::IsNullOrWhiteSpace($_)
+                        }
+                    )
+
+
+                if($messageParts.Count -gt 0) {
+
+                    $candidateSignatures +=
+                        (
+                            "message|$channelKey|" +
+                            ($messageParts -join '||')
+                        )
+                }
+            }
+            catch {}
+
+
+            $ghostReplay = $false
+            $ghostReason = ''
+            $ghostAgeMs  = 0
+
+
+            foreach(
+                $signature in
+                @($candidateSignatures)
+            ) {
+
+                if(
+                    !$recentPrimarySignatures.ContainsKey(
+                        $signature
+                    )
+                ) {
+                    continue
+                }
+
+
+                $signatureAge =
+                    (
+                        (Get-Date) -
+                        $recentPrimarySignatures[$signature]
+                    ).TotalMilliseconds
+
+
+                # Same RuntimeId within 12 sec is the same UI object
+                # repainting/reappearing.
+                if(
+                    $signature.StartsWith('runtime|') -and
+                    $signatureAge -ge 0 -and
+                    $signatureAge -le 12000
+                ) {
+
+                    $ghostReplay = $true
+                    $ghostReason = 'runtime'
+                    $ghostAgeMs  = [int]$signatureAge
+
+                    break
+                }
+
+
+                # When Slack rebuilds RuntimeId, use the exact message
+                # fingerprint only inside the repeatedly observed
+                # repaint window (~8 sec).
+                if(
+                    $signature.StartsWith('message|') -and
+                    $signatureAge -ge 6000 -and
+                    $signatureAge -le 11500
+                ) {
+
+                    $ghostReplay = $true
+                    $ghostReason = 'message-cycle'
+                    $ghostAgeMs  = [int]$signatureAge
+
+                    break
+                }
+            }
+
+
+            if($ghostReplay) {
+
+                Write-RouterLog (
+                    "PRIMARY_SUPPRESSED ghost-{0} channel=#{1} ageMs={2}" -f `
+                    $ghostReason,
+                    $channelKey,
+                    $ghostAgeMs
+                )
+
+                continue
+            }
+
             if($primaryChannelSessions.ContainsKey($channelKey)) {
 
                 Write-RouterLog `
@@ -653,6 +975,24 @@ while($true) {
             }
 
             $primaryChannelSessions[$channelKey] = Get-Date
+
+            $signatureStamp = Get-Date
+
+            foreach(
+                $signature in
+                @($candidateSignatures)
+            ) {
+
+                if(
+                    ![string]::IsNullOrWhiteSpace(
+                        $signature
+                    )
+                ) {
+
+                    $recentPrimarySignatures[$signature] =
+                        $signatureStamp
+                }
+            }
 
             $recentPrimaryToasts += [pscustomobject]@{
                 Time = $now
@@ -855,6 +1195,26 @@ while($true) {
                     Write-RouterLog `
                         "PRIMARY_SESSION_RESET channel=#$stackChannel"
                 }
+            }
+        }
+
+        # Expire ghost fingerprints quickly.
+        foreach(
+            $signature in
+            @($recentPrimarySignatures.Keys)
+        ) {
+
+            if(
+                (
+                    $now -
+                    $recentPrimarySignatures[$signature]
+                ).TotalSeconds -gt
+                $primarySignatureTtlSeconds
+            ) {
+
+                $recentPrimarySignatures.Remove(
+                    $signature
+                )
             }
         }
 

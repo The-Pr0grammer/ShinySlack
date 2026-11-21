@@ -1,4 +1,4 @@
-﻿$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
 
 # Fallback for users who launch this .ps1 directly instead of Start-ShinySlack.cmd.
@@ -96,7 +96,14 @@ try {
         if (Test-Path $portFile) {
             try {
                 $port = [int](Get-Content $portFile -Raw)
-                $url = "http://127.0.0.1:$port/"
+                $fallbackUrl = "http://127.0.0.1:$port/"
+                $prettyUrl   = "http://localhost:$port/"
+
+                $url = $fallbackUrl
+
+                if(Test-ShinySlackUrl $prettyUrl) {
+                    $url = $prettyUrl
+                }
                 if (Test-ShinySlackUrl $url) {
                     Open-ShinySlackUrl $url
                     exit 0

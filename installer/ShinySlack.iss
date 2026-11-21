@@ -1,4 +1,4 @@
-﻿#ifndef MyAppVersion
+#ifndef MyAppVersion
   #define MyAppVersion "0.1.0-beta"
 #endif
 
@@ -34,6 +34,7 @@ Source: "..\app\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs create
 
 [Icons]
 Name: "{autoprograms}\ShinySlack"; Filename: "{app}\{#MyAppExe}"; WorkingDir: "{app}"; Comment: "Open ShinySlack"
+Name: "{autoprograms}\ShinySlack Background"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-ShinySlack-Background.ps1"""; WorkingDir: "{app}"; Comment: "Start ShinySlack notification routing without opening the dashboard"
 Name: "{autodesktop}\ShinySlack"; Filename: "{app}\{#MyAppExe}"; WorkingDir: "{app}"; Tasks: desktopicon; Comment: "Open ShinySlack"
 
 [Tasks]
