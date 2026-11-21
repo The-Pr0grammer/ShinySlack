@@ -1529,11 +1529,22 @@ function renderChannelAudio(s){
     const savedLink=
       (c.deepLinks||{})[r.channel]||null;
 
+    const linkedChannels=
+      new Set(
+        (c.linkedChannels||[])
+          .map(
+            v=>
+              String(v||'')
+                .replace(/^#/,'')
+                .trim()
+          )
+      );
+
     const isLinked=
-      !!(
-        savedLink &&
-        savedLink.team &&
-        savedLink.channel
+      linkedChannels.has(
+        String(r.channel||'')
+          .replace(/^#/,'')
+          .trim()
       );
 
     const row=
@@ -1616,9 +1627,17 @@ function renderChannelAudio(s){
       );
 
       link.title=
-        savedLink.team+
+        (
+          savedLink?.team||
+          r.team||
+          ''
+        )+
         '/'+
-        savedLink.channel;
+        (
+          savedLink?.channel||
+          r.channelId||
+          ''
+        );
     }
 
 
@@ -1629,10 +1648,18 @@ function renderChannelAudio(s){
           ...r,
           linked:isLinked,
           team:isLinked
-            ? savedLink.team
+            ? (
+                savedLink?.team||
+                r.team||
+                ''
+              )
             : '',
           channelId:isLinked
-            ? savedLink.channel
+            ? (
+                savedLink?.channel||
+                r.channelId||
+                ''
+              )
             : ''
         });
       };

@@ -969,6 +969,39 @@ function Get-OperationObject {
 }
 
 
+# SHINY-LINKED-CHANNEL-NAMES-V1
+function Get-LinkedChannelNames {
+
+    try {
+
+        $cfg =
+            Read-ChannelRoutesConfig
+
+
+        if(
+            $null -eq $cfg.deepLinks
+        ){
+            return @()
+        }
+
+
+        return @(
+            $cfg.deepLinks.Keys |
+            ForEach-Object {
+                ([string]$_).Trim()
+            } |
+            Where-Object {
+                $_
+            } |
+            Sort-Object -Unique
+        )
+    }
+    catch {
+
+        return @()
+    }
+}
+
 function Get-ChannelAudioStatus {
 
     $routerLog =
@@ -985,9 +1018,6 @@ function Get-ChannelAudioStatus {
 
     $routerRunning =
         $false
-
-    $lastDetected =
-        ''
 
 
     foreach(
@@ -1010,14 +1040,14 @@ function Get-ChannelAudioStatus {
                     -LiteralPath $heartbeatPath
 
 
-            $ageSeconds =
+            $age =
                 (
                     (Get-Date).ToUniversalTime() -
                     $info.LastWriteTimeUtc
                 ).TotalSeconds
 
 
-            if($ageSeconds -le 300){
+            if($age -le 300){
 
                 $routerRunning =
                     $true
@@ -1051,25 +1081,41 @@ function Get-ChannelAudioStatus {
         )
     ){
 
+        $name =
+            ([string]$channelName).Trim()
+
+
         $link =
             $null
 
 
         if(
             $cfg.deepLinks.ContainsKey(
-                $channelName
+                $name
             )
         ){
 
             $link =
-                $cfg.deepLinks[$channelName]
+                $cfg.deepLinks[$name]
         }
+
+
+        $linked =
+            (
+                $null -ne $link -and
+                ![string]::IsNullOrWhiteSpace(
+                    [string]$link.team
+                ) -and
+                ![string]::IsNullOrWhiteSpace(
+                    [string]$link.channel
+                )
+            )
 
 
         $routes +=
             [pscustomobject]@{
                 channel =
-                    [string]$channelName
+                    $name
 
                 sound =
                     Split-Path `
@@ -1077,10 +1123,10 @@ function Get-ChannelAudioStatus {
                         ([string]$cfg.routes[$channelName])
 
                 linked =
-                    [bool]($null -ne $link)
+                    [bool]$linked
 
                 team =
-                    if($link){
+                    if($linked){
                         [string]$link.team
                     }
                     else {
@@ -1088,7 +1134,7 @@ function Get-ChannelAudioStatus {
                     }
 
                 channelId =
-                    if($link){
+                    if($linked){
                         [string]$link.channel
                     }
                     else {
@@ -1096,6 +1142,10 @@ function Get-ChannelAudioStatus {
                     }
             }
     }
+
+
+    $lastDetected =
+        ''
 
 
     if(Test-Path -LiteralPath $routerLog){
@@ -1124,7 +1174,7 @@ function Get-ChannelAudioStatus {
 
                     $lastDetected =
                         '#' +
-                        $matches[1]
+                        $Matches[1]
 
                     break
                 }
@@ -1161,6 +1211,9 @@ function Get-ChannelAudioStatus {
         deepLinks =
             $cfg.deepLinks
 
+        linkedChannels =
+            @(Get-LinkedChannelNames)
+
         workspaces =
             @($workspaces)
 
@@ -1193,30 +1246,41 @@ function Read-ChannelRoutesConfig {
         $null
 
 
-    if(Test-Path $configPath){
+    if(Test-Path -LiteralPath $configPath){
 
         try {
 
-            $cfg =
+            $raw =
                 Get-Content `
                     -LiteralPath $configPath `
                     -Raw `
-                    -Encoding UTF8 |
+                    -Encoding UTF8 `
+                    -ErrorAction Stop
+
+
+            $cfg =
+                $raw |
                 ConvertFrom-Json
 
 
             if($null -ne $cfg.enabled){
-                $enabled = [bool]$cfg.enabled
+
+                $enabled =
+                    [bool]$cfg.enabled
             }
 
 
             if($null -ne $cfg.volume){
-                $volume = [double]$cfg.volume
+
+                $volume =
+                    [double]$cfg.volume
             }
 
 
             if($null -ne $cfg.defaultSound){
-                $defaultSound = [string]$cfg.defaultSound
+
+                $defaultSound =
+                    [string]$cfg.defaultSound
             }
 
 
@@ -1228,7 +1292,7 @@ function Read-ChannelRoutesConfig {
                 ){
 
                     $routes[
-                        [string]$p.Name
+                        ([string]$p.Name).Trim()
                     ] =
                         [string]$p.Value
                 }
@@ -1242,20 +1306,31 @@ function Read-ChannelRoutesConfig {
                     $cfg.deepLinks.PSObject.Properties
                 ){
 
+                    $name =
+                        ([string]$p.Name).Trim()
+
+
+                    $team =
+                        ([string]$p.Value.team).Trim()
+
+
+                    $conversation =
+                        ([string]$p.Value.channel).Trim()
+
+
                     if(
-                        $p.Value.team -and
-                        $p.Value.channel
+                        $name -and
+                        $team -and
+                        $conversation
                     ){
 
-                        $deepLinks[
-                            [string]$p.Name
-                        ] =
+                        $deepLinks[$name] =
                             [pscustomobject]@{
                                 team =
-                                    [string]$p.Value.team
+                                    $team
 
                                 channel =
-                                    [string]$p.Value.channel
+                                    $conversation
                             }
                     }
                 }
@@ -1303,38 +1378,96 @@ function Write-ChannelRoutesConfig {
         '.tmp'
 
 
-    $links =
-        if($null -ne $Config.deepLinks){
-            $Config.deepLinks
+    $routeObject =
+        [ordered]@{}
+
+
+    foreach(
+        $key in
+        @(
+            $Config.routes.Keys |
+            Sort-Object
+        )
+    ){
+
+        $routeObject[
+            [string]$key
+        ] =
+            [string]$Config.routes[$key]
+    }
+
+
+    $linkObject =
+        [ordered]@{}
+
+
+    if($null -ne $Config.deepLinks){
+
+        foreach(
+            $key in
+            @(
+                $Config.deepLinks.Keys |
+                Sort-Object
+            )
+        ){
+
+            $link =
+                $Config.deepLinks[$key]
+
+
+            if(
+                $link -and
+                $link.team -and
+                $link.channel
+            ){
+
+                $linkObject[
+                    [string]$key
+                ] =
+                    [ordered]@{
+                        team =
+                            [string]$link.team
+
+                        channel =
+                            [string]$link.channel
+                    }
+            }
         }
-        else {
-            @{}
+    }
+
+
+    $output =
+        [ordered]@{
+            version =
+                5
+
+            enabled =
+                [bool]$Config.enabled
+
+            volume =
+                [double]$Config.volume
+
+            defaultSound =
+                $Config.defaultSound
+
+            routes =
+                $routeObject
+
+            deepLinks =
+                $linkObject
         }
 
 
-    [ordered]@{
-        version =
-            5
+    $json =
+        $output |
+        ConvertTo-Json -Depth 10
 
-        enabled =
-            [bool]$Config.enabled
 
-        volume =
-            [double]$Config.volume
-
-        defaultSound =
-            $Config.defaultSound
-
-        routes =
-            $Config.routes
-
-        deepLinks =
-            $links
-    } |
-    ConvertTo-Json -Depth 10 |
-    Set-Content `
-        -LiteralPath $tempPath `
-        -Encoding UTF8
+    [IO.File]::WriteAllText(
+        $tempPath,
+        $json,
+        (New-Object Text.UTF8Encoding($false))
+    )
 
 
     Move-Item `
@@ -1394,379 +1527,11 @@ function Save-ChannelAudioUpload {
 $listener=$null
 try {
     for($p=$Port;$p -lt ($Port+20);$p++){try{$listener=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,$p);$listener.Start();$Port=$p;break}catch{
-function Get-ChannelAudioStatus {
 
-    $routerLog =
-        Join-Path `
-            $script:Root `
-            'channel-router.log'
 
 
-    $routerStdout =
-        Join-Path `
-            $script:Root `
-            'channel-router.stdout.log'
 
 
-    $routerRunning =
-        $false
-
-    $lastDetected =
-        ''
-
-
-    foreach(
-        $heartbeatPath in
-        @(
-            $routerStdout,
-            $routerLog
-        )
-    ){
-
-        if(!(Test-Path -LiteralPath $heartbeatPath)){
-            continue
-        }
-
-
-        try {
-
-            $info =
-                Get-Item `
-                    -LiteralPath $heartbeatPath
-
-
-            $ageSeconds =
-                (
-                    (Get-Date).ToUniversalTime() -
-                    $info.LastWriteTimeUtc
-                ).TotalSeconds
-
-
-            if($ageSeconds -le 300){
-
-                $routerRunning =
-                    $true
-
-                break
-            }
-        }
-        catch {}
-    }
-
-
-    $cfg =
-        Read-ChannelRoutesConfig
-
-
-    $workspaces =
-        @(
-            Get-SlackDesktopWorkspaces
-        )
-
-
-    $routes =
-        @()
-
-
-    foreach(
-        $channelName in
-        @(
-            $cfg.routes.Keys |
-            Sort-Object
-        )
-    ){
-
-        $link =
-            $null
-
-
-        if(
-            $cfg.deepLinks.ContainsKey(
-                $channelName
-            )
-        ){
-
-            $link =
-                $cfg.deepLinks[$channelName]
-        }
-
-
-        $routes +=
-            [pscustomobject]@{
-                channel =
-                    [string]$channelName
-
-                sound =
-                    Split-Path `
-                        -Leaf `
-                        ([string]$cfg.routes[$channelName])
-
-                linked =
-                    [bool]($null -ne $link)
-
-                team =
-                    if($link){
-                        [string]$link.team
-                    }
-                    else {
-                        ''
-                    }
-
-                channelId =
-                    if($link){
-                        [string]$link.channel
-                    }
-                    else {
-                        ''
-                    }
-            }
-    }
-
-
-    if(Test-Path -LiteralPath $routerLog){
-
-        try {
-
-            $lines =
-                @(
-                    Get-Content `
-                        -LiteralPath $routerLog `
-                        -Tail 100 `
-                        -Encoding UTF8
-                )
-
-
-            for(
-                $i = $lines.Count - 1;
-                $i -ge 0;
-                $i--
-            ){
-
-                if(
-                    $lines[$i] -match
-                    'channel=#([^\s]+)'
-                ){
-
-                    $lastDetected =
-                        '#' +
-                        $matches[1]
-
-                    break
-                }
-            }
-        }
-        catch {}
-    }
-
-
-    [pscustomobject]@{
-        routerRunning =
-            $routerRunning
-
-        enabled =
-            [bool]$cfg.enabled
-
-        volume =
-            [double]$cfg.volume
-
-        defaultSound =
-            if($cfg.defaultSound){
-
-                Split-Path `
-                    -Leaf `
-                    ([string]$cfg.defaultSound)
-            }
-            else {
-                ''
-            }
-
-        routes =
-            @($routes)
-
-        deepLinks =
-            $cfg.deepLinks
-
-        workspaces =
-            @($workspaces)
-
-        lastDetected =
-            $lastDetected
-    }
-}
-
-function Read-ChannelRoutesConfig {
-
-    $configPath =
-        Join-Path `
-            $script:Root `
-            'channel-routes.json'
-
-
-    $routes =
-        @{}
-
-    $deepLinks =
-        @{}
-
-    $enabled =
-        $true
-
-    $volume =
-        1.0
-
-    $defaultSound =
-        $null
-
-
-    if(Test-Path $configPath){
-
-        try {
-
-            $cfg =
-                Get-Content `
-                    -LiteralPath $configPath `
-                    -Raw `
-                    -Encoding UTF8 |
-                ConvertFrom-Json
-
-
-            if($null -ne $cfg.enabled){
-                $enabled = [bool]$cfg.enabled
-            }
-
-
-            if($null -ne $cfg.volume){
-                $volume = [double]$cfg.volume
-            }
-
-
-            if($null -ne $cfg.defaultSound){
-                $defaultSound = [string]$cfg.defaultSound
-            }
-
-
-            if($null -ne $cfg.routes){
-
-                foreach(
-                    $p in
-                    $cfg.routes.PSObject.Properties
-                ){
-
-                    $routes[
-                        [string]$p.Name
-                    ] =
-                        [string]$p.Value
-                }
-            }
-
-
-            if($null -ne $cfg.deepLinks){
-
-                foreach(
-                    $p in
-                    $cfg.deepLinks.PSObject.Properties
-                ){
-
-                    if(
-                        $p.Value.team -and
-                        $p.Value.channel
-                    ){
-
-                        $deepLinks[
-                            [string]$p.Name
-                        ] =
-                            [pscustomobject]@{
-                                team =
-                                    [string]$p.Value.team
-
-                                channel =
-                                    [string]$p.Value.channel
-                            }
-                    }
-                }
-            }
-        }
-        catch {
-
-            throw (
-                'Could not read channel-routes.json: ' +
-                $_.Exception.Message
-            )
-        }
-    }
-
-
-    [pscustomobject]@{
-        enabled =
-            $enabled
-
-        volume =
-            $volume
-
-        defaultSound =
-            $defaultSound
-
-        routes =
-            $routes
-
-        deepLinks =
-            $deepLinks
-    }
-}
-
-function Write-ChannelRoutesConfig {
-    param($Config)
-
-    $configPath =
-        Join-Path `
-            $script:Root `
-            'channel-routes.json'
-
-
-    $tempPath =
-        $configPath +
-        '.tmp'
-
-
-    $links =
-        if($null -ne $Config.deepLinks){
-            $Config.deepLinks
-        }
-        else {
-            @{}
-        }
-
-
-    [ordered]@{
-        version =
-            5
-
-        enabled =
-            [bool]$Config.enabled
-
-        volume =
-            [double]$Config.volume
-
-        defaultSound =
-            $Config.defaultSound
-
-        routes =
-            $Config.routes
-
-        deepLinks =
-            $links
-    } |
-    ConvertTo-Json -Depth 10 |
-    Set-Content `
-        -LiteralPath $tempPath `
-        -Encoding UTF8
-
-
-    Move-Item `
-        -LiteralPath $tempPath `
-        -Destination $configPath `
-        -Force
-}
 
 function Save-ChannelAudioUpload {
     param(
@@ -2553,7 +2318,47 @@ if(!$latest) {
                             $cfg
 
 
-                        Json-Response $client @{
+                                            # SHINY-DEEPLINK-READBACK-V1
+                    # Never claim success until the saved mapping
+                    # survives a complete JSON write/read cycle.
+
+                    $verifyCfg =
+                        Read-ChannelRoutesConfig
+
+
+                    if(
+                        !$verifyCfg.deepLinks.ContainsKey(
+                            $channel
+                        )
+                    ){
+
+                        throw (
+                            'Deep link write verification failed: ' +
+                            'channel mapping missing after reload.'
+                        )
+                    }
+
+
+                    $verifyLink =
+                        $verifyCfg.deepLinks[$channel]
+
+
+                    if(
+                        [string]$verifyLink.team -ne
+                        [string]$teamId -or
+
+                        [string]$verifyLink.channel -ne
+                        [string]$channelId
+                    ){
+
+                        throw (
+                            'Deep link write verification failed: ' +
+                            'saved IDs did not match.'
+                        )
+                    }
+
+
+Json-Response $client @{
                             ok =
                                 $true
 
