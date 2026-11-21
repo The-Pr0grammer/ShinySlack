@@ -179,11 +179,27 @@
   .volumeControl{
     width:100%;
   }
-}</style>
+}
+/* SHINY-DEEP-LINK-CSS-V1 */
+
+.channelActions button.deepLinked{
+  color:var(--good);
+  border-color:#28543d;
+  background:#0d1d17;
+}
+
+.channelName.deepLinkable{
+  cursor:pointer;
+}
+
+.channelName.deepLinkable:hover{
+  text-decoration:underline;
+}
+</style>
 </head>
 <body>
 <div class="wrap">
-  <div class="brand"><div class="logo">S</div><h1>ShinySlack</h1><span style="font:12px Consolas,monospace;color:#55d9ff;border:1px solid #2d5363;border-radius:999px;padding:4px 8px">V2.5 BETA · ENGINE V16</span></div>
+  <div class="brand"><div class="logo">S</div><h1>ShinySlack</h1><span id="versionBadge" style="font:12px Consolas,monospace;color:#55d9ff;border:1px solid #2d5363;border-radius:999px;padding:4px 8px">CHECKING · ENGINE V16</span></div>
   <p class="tag">Your Slack. Your sound. Local-only Windows patcher.</p>
 
   <div class="grid">
@@ -383,6 +399,129 @@ async function api(path,options={}){
   }
 }
 let channelUploadTarget='';
+/* SHINY-VERSION-SYNC-V2 */
+
+const __shinyOriginalApi=
+  api;
+
+
+function setShinyLatestVersion(version){
+
+  if(!version){
+    return;
+  }
+
+
+  const badge=
+    document.getElementById(
+      'versionBadge'
+    );
+
+
+  if(!badge){
+    return;
+  }
+
+
+  badge.textContent=
+    String(version).toUpperCase()+
+    ' · ENGINE V16';
+}
+
+
+/*
+ * Wrap the existing local API helper.
+ *
+ * Every caller still receives the exact same response.
+ * We only observe /api/update/check and mirror its
+ * latestVersion into the badge.
+ */
+api=
+  async function(path,options={}){
+
+    const result=
+      await __shinyOriginalApi(
+        path,
+        options
+      );
+
+
+    if(
+      path==='/api/update/check' &&
+      result &&
+      result.latestVersion
+    ){
+
+      setShinyLatestVersion(
+        result.latestVersion
+      );
+    }
+
+
+    return result;
+  };
+
+
+async function syncShinyLatestVersion(){
+
+  try{
+
+    /*
+     * Goes through the SAME wrapped api()
+     * used by the Check for Updates button.
+     *
+     * No duplicate version logic exists here.
+     */
+    await api(
+      '/api/update/check'
+    );
+
+  }
+  catch(e){
+
+    const badge=
+      document.getElementById(
+        'versionBadge'
+      );
+
+
+    if(
+      badge &&
+      badge.textContent.startsWith(
+        'CHECKING'
+      )
+    ){
+
+      badge.textContent=
+        'VERSION ? · ENGINE V16';
+    }
+  }
+}
+
+
+/*
+ * Resolve immediately when dashboard opens.
+ */
+setTimeout(
+  syncShinyLatestVersion,
+  0
+);
+
+
+/*
+ * Keep a long-open dashboard current too.
+ *
+ * 5 minutes = 12 GitHub checks/hour,
+ * comfortably below normal unauthenticated
+ * public API limits.
+ */
+setInterval(
+  syncShinyLatestVersion,
+  5*60*1000
+);
+
+/* END-SHINY-VERSION-SYNC-V2 */
+
 /* SHINY-AUDIO-CONTROLS-JS-V2 */
 
 let channelAudioState={
@@ -637,6 +776,137 @@ if(channelVolumeSlider){
 }
 
 
+
+/* SHINY-DEEP-LINK-JS-V1 */
+
+window.__shinyDeepLinks=
+  window.__shinyDeepLinks||{};
+
+
+window.openShinySlackChannel=
+  function(channel){
+
+    const key=
+      String(channel||'')
+        .trim()
+        .replace(/^#/,'');
+
+
+    if(!key){
+
+      window.location.href=
+        'slack://open';
+
+      return;
+    }
+
+
+    const link=
+      window.__shinyDeepLinks[key];
+
+
+    if(
+      link &&
+      link.team &&
+      link.channel
+    ){
+
+      window.location.href=
+        'slack://channel?team='+
+        encodeURIComponent(link.team)+
+        '&id='+
+        encodeURIComponent(link.channel);
+
+      return;
+    }
+
+
+    /*
+     * Prototype safety:
+     * unlinked channels keep the old behavior.
+     */
+    window.location.href=
+      'slack://open';
+  };
+
+
+async function configureChannelDeepLink(route){
+
+  const current=
+    route.linked
+      ? (
+          route.team+
+          '/'+
+          route.channelId
+        )
+      : 'not linked';
+
+
+  const pasted=
+    prompt(
+      'Deep link for #'+route.channel+
+      '\n\nCurrent: '+current+
+      '\n\nPaste a Slack browser URL like:'+
+      '\nhttps://app.slack.com/client/T123/C123'+
+      '\n\nLeave blank to unlink.'
+    );
+
+
+  if(pasted===null){
+    return;
+  }
+
+
+  try{
+
+    const result=
+      await api(
+        '/api/channel/link',
+        {
+          method:'POST',
+          headers:{
+            'Content-Type':'application/json'
+          },
+          body:JSON.stringify({
+            channel:route.channel,
+            url:pasted.trim()
+          })
+        }
+      );
+
+
+    if(result.linked){
+
+      show(
+        true,
+        '#'+route.channel+
+        ' linked to '+
+        result.team+
+        '/'+
+        result.channelId
+      );
+    }
+    else{
+
+      show(
+        true,
+        '#'+route.channel+
+        ' deep link removed.'
+      );
+    }
+
+
+    await status();
+  }
+  catch(e){
+
+    show(
+      false,
+      e.message
+    );
+  }
+}
+
 function normalizeChannel(v){
   return (v||'').trim().replace(/^#/,'');
 }
@@ -756,69 +1026,218 @@ function renderChannelAudio(s){
 
   syncChannelAudioControls(c);
 
+  window.__shinyDeepLinks=
+    c.deepLinks||{};
+
   const router=$('channelRouter');
 
-  router.textContent=c.routerRunning?'Watching':'Stopped';
-  cls(router,c.routerRunning?'good':'warn');
+  router.textContent=
+    c.routerRunning
+      ? 'Watching'
+      : 'Stopped';
+
+  cls(
+    router,
+    c.routerRunning
+      ? 'good'
+      : 'warn'
+  );
 
   $('channelDefault').textContent=
-    c.defaultSound||'Not configured';
+    c.defaultSound||
+    'Not configured';
 
   $('channelLast').textContent=
-    c.lastDetected||'None yet';
+    c.lastDetected||
+    'None yet';
 
-  const box=$('channelRoutes');
+  const box=
+    $('channelRoutes');
+
   box.innerHTML='';
 
-  const routes=c.routes||[];
+  const routes=
+    c.routes||[];
 
   if(!routes.length){
-    const empty=document.createElement('div');
-    empty.className='channelEmpty';
-    empty.textContent='No channel routes configured.';
-    box.appendChild(empty);
+
+    const empty=
+      document.createElement(
+        'div'
+      );
+
+    empty.className=
+      'channelEmpty';
+
+    empty.textContent=
+      'No channel routes configured.';
+
+    box.appendChild(
+      empty
+    );
+
     return;
   }
 
+
   routes.forEach(r=>{
-    const row=document.createElement('div');
-    row.className='channelRoute';
 
-    const channel=document.createElement('div');
-    channel.className='channelName';
-    channel.textContent='#'+r.channel;
+    const row=
+      document.createElement(
+        'div'
+      );
 
-    const sound=document.createElement('div');
-    sound.className='channelSound';
-    sound.textContent=r.sound||'No sound';
+    row.className=
+      'channelRoute';
 
-    const actions=document.createElement('div');
-    actions.className='channelActions';
 
-    const change=document.createElement('button');
-    change.textContent='Change';
+    const channel=
+      document.createElement(
+        'div'
+      );
 
-    change.onclick=()=>{
-      channelUploadTarget=r.channel;
-      $('channelSoundFile').value='';
-      $('channelSoundFile').click();
-    };
+    channel.className=
+      'channelName deepLinkable';
 
-    const remove=document.createElement('button');
-    remove.textContent='Remove';
+    channel.textContent=
+      '#'+r.channel;
 
-    remove.onclick=()=>{
-      removeChannelSound(r.channel);
-    };
+    channel.title=
+      r.linked
+        ? 'Open linked Slack channel'
+        : 'Open Slack';
 
-    actions.appendChild(change);
-    actions.appendChild(remove);
+    channel.onclick=
+      ()=>{
+        window.openShinySlackChannel(
+          r.channel
+        );
+      };
 
-    row.appendChild(channel);
-    row.appendChild(sound);
-    row.appendChild(actions);
 
-    box.appendChild(row);
+    const sound=
+      document.createElement(
+        'div'
+      );
+
+    sound.className=
+      'channelSound';
+
+    sound.textContent=
+      r.sound||
+      'No sound';
+
+
+    const actions=
+      document.createElement(
+        'div'
+      );
+
+    actions.className=
+      'channelActions';
+
+
+    const change=
+      document.createElement(
+        'button'
+      );
+
+    change.textContent=
+      'Change';
+
+    change.onclick=
+      ()=>{
+        channelUploadTarget=
+          r.channel;
+
+        $('channelSoundFile').value=
+          '';
+
+        $('channelSoundFile').click();
+      };
+
+
+    const link=
+      document.createElement(
+        'button'
+      );
+
+    link.textContent=
+      r.linked
+        ? 'Linked ✓'
+        : 'Link';
+
+    if(r.linked){
+
+      link.classList.add(
+        'deepLinked'
+      );
+
+      link.title=
+        r.team+
+        '/'+
+        r.channelId;
+    }
+    else{
+
+      link.title=
+        'Link this route to an exact Slack channel';
+    }
+
+
+    link.onclick=
+      ()=>{
+        configureChannelDeepLink(
+          r
+        );
+      };
+
+
+    const remove=
+      document.createElement(
+        'button'
+      );
+
+    remove.textContent=
+      'Remove';
+
+    remove.onclick=
+      ()=>{
+        removeChannelSound(
+          r.channel
+        );
+      };
+
+
+    actions.appendChild(
+      change
+    );
+
+    actions.appendChild(
+      link
+    );
+
+    actions.appendChild(
+      remove
+    );
+
+
+    row.appendChild(
+      channel
+    );
+
+    row.appendChild(
+      sound
+    );
+
+    row.appendChild(
+      actions
+    );
+
+
+    box.appendChild(
+      row
+    );
   });
 }
 const activityColors=[
@@ -1177,17 +1596,22 @@ status();setInterval(status,10000);
     }
 
 
-    function openSlack() {
+    function openSlack(channel) {
 
-        /*
-         * Uses Slack's registered desktop protocol.
-         * No channel navigation — just open/focus Slack,
-         * matching the direction we chose for the overlay.
-         */
+        if(
+            window.openShinySlackChannel
+        ){
+            window.openShinySlackChannel(
+                channel
+            );
+
+            return;
+        }
 
         window.location.href =
             "slack://open";
     }
+
 
 
     function decorateActivityCards() {
@@ -1309,7 +1733,7 @@ status();setInterval(status,10000);
                 }
 
 
-                openSlack();
+                openSlack(channel.textContent);
             }
 
 
