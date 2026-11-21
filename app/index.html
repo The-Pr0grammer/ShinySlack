@@ -569,7 +569,9 @@ button[data-ss-tip]:hover{
     <h2>Activity</h2>
     <div class="sub">Recent ShinySlack notification audio events.</div>
     <div class="alertToggleRow">
-      <label class="alertToggleLabel">
+      <label class="alertToggleLabel"
+       data-ss-tip-title="Auto-dismiss floating alerts"
+       data-ss-tip="When enabled, floating ShinySlack alerts disappear automatically after 15 seconds. Turn it off when you want alerts to remain until you dismiss them.">
         <input id="alertAutoDismiss" type="checkbox">
         Auto-dismiss floating alerts after 15 seconds
       </label>
@@ -581,16 +583,16 @@ button[data-ss-tip]:hover{
         <div class="historyRecoveryLabel">
           OFFLINE RECOVERY
         </div>
-        <div id="historyRecoveryStatus">
+        <div id="historyRecoveryStatus" data-ss-tip-title="Offline Recovery" data-ss-tip="Shows whether offline Slack history recovery is connected and whether ShinySlack can recover supported activity that occurred while this PC was unavailable.">
           Not connected
         </div>
       </div>
 
       <div class="historyRecoveryActions">
-        <button id="historyConnect">
+        <button id="historyConnect" data-ss-tip-title="Connect History" data-ss-tip="Connect offline recovery so ShinySlack can recover supported Slack activity that happened while this PC was asleep, offline, or powered off.">
           Connect History
         </button>
-        <button id="historyBackfill">
+        <button id="historyBackfill" data-ss-tip-title="Backfill Now" data-ss-tip="Run offline recovery immediately and add supported activity from linked Slack channels since the last recovery checkpoint.">
           Backfill Now
         </button>
       </div>
@@ -600,9 +602,9 @@ button[data-ss-tip]:hover{
       <div class="activityEmpty">No Slack notifications yet.</div>
     </div>
     <div class="actions">
-      <button id="shutdown">Close Dashboard</button>
-      <button id="uninstall">Uninstall ShinySlack</button>
-      <button id="checkUpdate">Check for Updates</button>
+      <button id="shutdown" data-ss-tip-title="Close Dashboard" data-ss-tip="Close only this dashboard. ShinySlack notification sounds, routing, floating alerts, and the background watcher continue running.">Close Dashboard</button>
+      <button id="uninstall" data-ss-tip-title="Uninstall ShinySlack" data-ss-tip="Remove ShinySlack&#39;s local app files and watcher. Slack itself is not uninstalled.">Uninstall ShinySlack</button>
+      <button id="checkUpdate" data-ss-tip-title="Check for Updates" data-ss-tip="Check GitHub for the latest published ShinySlack release. If a newer version exists, this button changes to View Update.">Check for Updates</button>
     </div>
     <div id="updateStatus" class="sub" style="margin-top:10px"></div>
   </section>
@@ -3188,9 +3190,21 @@ status();setInterval(status,10000);
                 "0"
             );
 
+            card.removeAttribute(
+                "title"
+            );
+
             card.setAttribute(
-                "title",
-                "Open Slack"
+                "data-ss-tip-title",
+                "Open Slack channel"
+            );
+
+            card.setAttribute(
+                "data-ss-tip",
+                "Open " +
+                channel.textContent +
+                " in the Slack desktop app. " +
+                "If this channel has a saved deep link, ShinySlack jumps directly to that channel."
             );
 
 
