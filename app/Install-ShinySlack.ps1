@@ -81,6 +81,39 @@ foreach ($webName in @('ShinySlack-Web.ps1','ShinySlack-Operation.ps1','index.ht
     if (Test-Path $webSrc) { Copy-ShinyFileIfNeeded -Source $webSrc -Destination (Join-Path $root $webName) }
 }
 
+# SHINY-SOUND-PRESETS-INSTALL-V1
+$presetSource =
+    Join-Path `
+        $PSScriptRoot `
+        'presets'
+
+
+if(Test-Path -LiteralPath $presetSource){
+
+    $presetDestination =
+        Join-Path `
+            $root `
+            'presets'
+
+
+    New-Item `
+        -ItemType Directory `
+        -Path $presetDestination `
+        -Force |
+    Out-Null
+
+
+    Copy-Item `
+        -Path (
+            Join-Path `
+                $presetSource `
+                '*'
+        ) `
+        -Destination $presetDestination `
+        -Recurse `
+        -Force
+}
+
 try { Get-ChildItem -LiteralPath $root -File -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue } catch {}
 
 try {

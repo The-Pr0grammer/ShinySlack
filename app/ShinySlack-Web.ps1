@@ -163,6 +163,39 @@ function Sync-InstalledShinySlackAgent {
             $src=Join-Path $script:SourceDir $name
             if(Test-Path $src){ Copy-Item $src (Join-Path $script:Root $name) -Force }
         }
+        # SHINY-SOUND-PRESETS-SYNC-V1
+        $presetSource =
+            Join-Path `
+                $script:SourceDir `
+                'presets'
+
+
+        if(Test-Path -LiteralPath $presetSource){
+
+            $presetDestination =
+                Join-Path `
+                    $script:Root `
+                    'presets'
+
+
+            New-Item `
+                -ItemType Directory `
+                -Path $presetDestination `
+                -Force |
+            Out-Null
+
+
+            Copy-Item `
+                -Path (
+                    Join-Path `
+                        $presetSource `
+                        '*'
+                ) `
+                -Destination $presetDestination `
+                -Recurse `
+                -Force
+        }
+
         Set-Content $versionPath $script:Build -Encoding ASCII
         try { Get-ChildItem -LiteralPath $script:Root -File -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue } catch {}
 
@@ -1123,6 +1156,152 @@ function Get-LinkedChannelNames {
 
         return @()
     }
+}
+
+# SHINY-SOUND-PRESETS-BACKEND-V1
+function Get-SoundPresets {
+
+    $dir =
+        Join-Path `
+            $script:Root `
+            'presets'
+
+
+    $manifestPath =
+        Join-Path `
+            $dir `
+            'presets.json'
+
+
+    if(!(Test-Path -LiteralPath $manifestPath)){
+        return @()
+    }
+
+
+    try {
+
+        $manifest =
+            Get-Content `
+                -LiteralPath $manifestPath `
+                -Raw `
+                -Encoding UTF8 `
+                -ErrorAction Stop |
+            ConvertFrom-Json
+
+
+        $result =
+            @()
+
+
+        foreach($preset in @($manifest.presets)){
+
+            if(!$preset){
+                continue
+            }
+
+
+            $id =
+                ([string]$preset.id).Trim()
+
+
+            $name =
+                ([string]$preset.name).Trim()
+
+
+            $fileName =
+                [IO.Path]::GetFileName(
+                    [string]$preset.fileName
+                )
+
+
+            if(
+                !$id -or
+                !$name -or
+                !$fileName
+            ){
+                continue
+            }
+
+
+            $path =
+                Join-Path `
+                    $dir `
+                    $fileName
+
+
+            if(!(Test-Path -LiteralPath $path)){
+                continue
+            }
+
+
+            $result +=
+                [pscustomobject]@{
+                    id =
+                        $id
+
+                    name =
+                        $name
+
+                    fileName =
+                        $fileName
+
+                    path =
+                        $path
+                }
+        }
+
+
+        return @(
+            $result |
+            Sort-Object name
+        )
+    }
+    catch {
+
+        Write-WebException `
+            $_ `
+            'PRESETS' `
+            'Could not load sound preset manifest'
+
+
+        return @()
+    }
+}
+
+
+function Resolve-SoundPreset {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$PresetId
+    )
+
+
+    $id =
+        $PresetId.Trim()
+
+
+    if(!$id){
+        throw 'Preset ID is required.'
+    }
+
+
+    $preset =
+        @(
+            Get-SoundPresets |
+            Where-Object {
+                [string]$_.id -eq
+                $id
+            }
+        ) |
+        Select-Object -First 1
+
+
+    if(!$preset){
+        throw 'Sound preset was not found.'
+    }
+
+
+    return $preset
 }
 
 function Get-ChannelAudioStatus {
@@ -2993,6 +3172,203 @@ Json-Response $client @{
                     }
                 }
                 catch {
+
+                    Json-Response $client @{
+                        ok =
+                            $false
+
+                        error =
+                            $_.Exception.Message
+                    } 500
+                }
+
+
+                continue
+            }
+
+            # SHINY-SOUND-PRESETS-API-V1
+            if(
+                $req.Method -eq 'GET' -and
+                $req.Path -eq '/api/channel/presets'
+            ){
+                try {
+
+                    $public =
+                        @(
+                            Get-SoundPresets |
+                            ForEach-Object {
+                                [ordered]@{
+                                    id =
+                                        [string]$_.id
+
+                                    name =
+                                        [string]$_.name
+
+                                    fileName =
+                                        [string]$_.fileName
+                                }
+                            }
+                        )
+
+
+                    Json-Response $client @{
+                        ok =
+                            $true
+
+                        presets =
+                            @($public)
+                    }
+                }
+                catch {
+
+                    Write-WebException `
+                        $_ `
+                        $rid `
+                        'Preset library read failed'
+
+
+                    Json-Response $client @{
+                        ok =
+                            $false
+
+                        error =
+                            $_.Exception.Message
+                    } 500
+                }
+
+
+                continue
+            }
+
+
+            if(
+                $req.Method -eq 'POST' -and
+                $req.Path -eq '/api/channel/preset'
+            ){
+                try {
+
+                    $j =
+                        $req.Body |
+                        ConvertFrom-Json
+
+
+                    $preset =
+                        Resolve-SoundPreset `
+                            -PresetId ([string]$j.presetId)
+
+
+                    $target =
+                        ([string]$j.target).Trim().ToLowerInvariant()
+
+
+                    $cfg =
+                        Read-ChannelRoutesConfig
+
+
+                    if($target -eq 'default'){
+
+                        $cfg.defaultSound =
+                            [string]$preset.path
+
+
+                        Write-ChannelRoutesConfig `
+                            $cfg
+
+
+                        Json-Response $client @{
+                            ok =
+                                $true
+
+                            target =
+                                'default'
+
+                            presetId =
+                                [string]$preset.id
+
+                            presetName =
+                                [string]$preset.name
+
+                            sound =
+                                [string]$preset.fileName
+                        }
+
+
+                        Write-WebDiag (
+                            'Default preset selected: {0}' -f
+                            [string]$preset.name
+                        ) $rid
+
+
+                        continue
+                    }
+
+
+                    if($target -ne 'channel'){
+                        throw 'Preset target must be default or channel.'
+                    }
+
+
+                    $channel =
+                        ([string]$j.channel).Trim()
+
+
+                    if($channel.StartsWith('#')){
+                        $channel =
+                            $channel.Substring(1)
+                    }
+
+
+                    if(
+                        [string]::IsNullOrWhiteSpace(
+                            $channel
+                        )
+                    ){
+                        throw 'Channel is required for a channel preset.'
+                    }
+
+
+                    $cfg.routes[$channel] =
+                        [string]$preset.path
+
+
+                    Write-ChannelRoutesConfig `
+                        $cfg
+
+
+                    Json-Response $client @{
+                        ok =
+                            $true
+
+                        target =
+                            'channel'
+
+                        channel =
+                            $channel
+
+                        presetId =
+                            [string]$preset.id
+
+                        presetName =
+                            [string]$preset.name
+
+                        sound =
+                            [string]$preset.fileName
+                    }
+
+
+                    Write-WebDiag (
+                        'Channel preset selected: #{0} -> {1}' -f
+                        $channel,
+                        [string]$preset.name
+                    ) $rid
+                }
+                catch {
+
+                    Write-WebException `
+                        $_ `
+                        $rid `
+                        'Preset selection failed'
+
 
                     Json-Response $client @{
                         ok =

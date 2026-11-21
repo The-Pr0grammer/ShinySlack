@@ -1,0 +1,29 @@
+{
+    "version":  1,
+    "presets":  [
+                    {
+                        "id":  "boop-71dfa059",
+                        "name":  "Boop",
+                        "fileName":  "boop-71dfa059.mp3",
+                        "sha256":  "71dfa0595ac25f1b3f2ad8469654877e16d4a5cfaaca105ce88a73e06757c3e7"
+                    },
+                    {
+                        "id":  "fahhh-21994c56",
+                        "name":  "Fahhh",
+                        "fileName":  "fahhh-21994c56.mp3",
+                        "sha256":  "21994c560d583f2c8b166ae16d5eab7fc5b925505e1ba93d7681543ebe443c08"
+                    },
+                    {
+                        "id":  "kamehameha-563f3e54",
+                        "name":  "Kamehameha",
+                        "fileName":  "kamehameha-563f3e54.mp3",
+                        "sha256":  "563f3e543cbbf35044426739a08714e9f80f6d5418468bbb8b332afc27369556"
+                    },
+                    {
+                        "id":  "patrick-wee-woo-1-da699b37",
+                        "name":  "Patrick Wee Woo 1",
+                        "fileName":  "patrick-wee-woo-1-da699b37.mp3",
+                        "sha256":  "da699b37521d1679064f24191ea902607dc98a6c116d7784d243cc5dc9c03d97"
+                    }
+                ]
+}
