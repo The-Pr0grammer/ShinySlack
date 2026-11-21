@@ -457,6 +457,143 @@ button[data-ss-tip]:hover{
 }
 
 /* SHINY-TOOLTIPS-V2-END */
+
+/* SHINY-SOUND-OWNERSHIP-CSS-V2 */
+
+.stat[data-ss-tip],
+.channelSound[data-ss-tip],
+#historyRecoveryStatus[data-ss-tip]{
+  cursor:default !important;
+}
+
+.soundSafetyBanner{
+  display:none;
+  margin:0 0 14px;
+  padding:12px 14px;
+  border-radius:12px;
+  font-size:12px;
+  font-weight:750;
+  line-height:1.45;
+}
+
+.soundSafetyBanner.show{display:block}
+.soundSafetyBanner.safe{
+  color:#bdf3d4;
+  background:#0d1d17;
+  border:1px solid #28543d;
+}
+.soundSafetyBanner.router{
+  color:#bcefff;
+  background:#0c1920;
+  border:1px solid #28586a;
+}
+.soundSafetyBanner.warning{
+  color:#ffe7a3;
+  background:#211b0e;
+  border:1px solid #685426;
+}
+.soundSafetyBanner.danger{
+  color:#ffc2ca;
+  background:#251015;
+  border:1px solid #76313b;
+}
+
+.soundOwnershipPanel{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:center;
+  gap:16px;
+  margin-bottom:16px;
+  padding:14px 15px;
+  border:1px solid var(--line);
+  border-radius:14px;
+  background:#0b0f17;
+}
+
+.soundOwnershipEyebrow{
+  color:var(--muted);
+  font-size:10px;
+  font-weight:800;
+  letter-spacing:.1em;
+}
+
+.soundOwnershipTitle{
+  margin-top:4px;
+  color:var(--text);
+  font-size:14px;
+  font-weight:800;
+}
+
+.soundOwnershipDetail{
+  margin-top:4px;
+  color:var(--muted);
+  font-size:12px;
+  line-height:1.45;
+}
+
+.soundOwnershipGuard{
+  margin-top:5px;
+  color:#7f8da2;
+  font:11px Consolas,monospace;
+}
+
+.soundOwnershipSwitch{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  color:var(--muted);
+  font-size:11px;
+  font-weight:700;
+  cursor:pointer;
+  user-select:none;
+}
+
+.soundOwnershipSwitch input{
+  appearance:none;
+  width:46px;
+  height:24px;
+  padding:2px;
+  border:1px solid #354155;
+  border-radius:999px;
+  background:#171d29;
+  cursor:pointer;
+  transition:.15s;
+}
+
+.soundOwnershipSwitch input::before{
+  content:"";
+  display:block;
+  width:18px;
+  height:18px;
+  border-radius:50%;
+  background:#d7deea;
+  transition:.15s;
+}
+
+.soundOwnershipSwitch input:checked{
+  border-color:#2d6476;
+  background:linear-gradient(135deg,#234957,#542244);
+}
+
+.soundOwnershipSwitch input:checked::before{
+  transform:translateX(21px);
+  background:#55d9ff;
+}
+
+.soundOwnershipSwitch input:disabled{
+  opacity:.45;
+  cursor:not-allowed;
+}
+
+.soundOwnershipPanel.router{border-color:#28586a}
+.soundOwnershipPanel.safe{border-color:#28543d}
+.soundOwnershipPanel.risk{border-color:#76313b}
+
+@media(max-width:700px){
+  .soundOwnershipPanel{grid-template-columns:1fr}
+}
+
+/* END SHINY-SOUND-OWNERSHIP-CSS-V2 */
 </style>
 </head>
 <body>
@@ -489,6 +626,58 @@ button[data-ss-tip]:hover{
         <div class="sub">Give every Slack channel its own sound, with a default for everything else. Changes apply instantly.</div>
       </div>
       <span style="font:11px Consolas,monospace;color:#54e39a;border:1px solid #28543d;border-radius:999px;padding:5px 9px">LIVE CONFIG</span>
+    </div>
+
+    <div
+      id="soundSafetyBanner"
+      class="soundSafetyBanner"
+      role="status"
+      aria-live="polite"
+    ></div>
+
+    <div
+      id="soundOwnershipPanel"
+      class="soundOwnershipPanel"
+    >
+      <div>
+        <div class="soundOwnershipEyebrow">
+          SOUND OWNERSHIP Â· EXPERIMENTAL
+        </div>
+
+        <div
+          id="soundOwnershipTitle"
+          class="soundOwnershipTitle"
+        >
+          Checking...
+        </div>
+
+        <div
+          id="soundOwnershipDetail"
+          class="soundOwnershipDetail"
+        ></div>
+
+        <div
+          id="soundOwnershipGuard"
+          class="soundOwnershipGuard"
+        ></div>
+      </div>
+
+      <label
+        class="soundOwnershipSwitch"
+        data-ss-tip-title="Sound ownership"
+        data-ss-tip="Fallback keeps the existing Slack/cache sound path available. Router mode makes ShinySlack responsible for audio and arms an independent guard that restores fallback audio if the router cannot recover."
+      >
+        <span>Fallback</span>
+
+        <input
+          id="soundOwnershipToggle"
+          type="checkbox"
+          role="switch"
+          aria-label="ShinySlack Router owns notification audio"
+        >
+
+        <span>ShinySlack Router</span>
+      </label>
     </div>
 
     <div class="channelSummary">
@@ -2832,6 +3021,90 @@ function renderActivity(items){
     box.scrollTop=0;
   });}
 
+function renderSoundOwnership(o){
+  o=o||{};
+
+  const panel=$('soundOwnershipPanel');
+  const toggle=$('soundOwnershipToggle');
+  const title=$('soundOwnershipTitle');
+  const detail=$('soundOwnershipDetail');
+  const guard=$('soundOwnershipGuard');
+  const banner=$('soundSafetyBanner');
+
+  if(!panel||!toggle||!title||!detail||!guard||!banner){
+    return;
+  }
+
+  panel.classList.remove('router','safe','risk');
+  banner.className='soundSafetyBanner';
+
+  const mode=o.mode||'legacy';
+
+  toggle.checked=
+    mode==='routerExclusive';
+
+  toggle.disabled=
+    !!o.transition;
+
+  if(mode==='legacy'){
+    title.textContent='Legacy sound path unchanged';
+    detail.textContent='The guarded Router mode is installed but not active. Your existing sound behavior has not been changed.';
+    guard.textContent=o.guardFresh?'Safety Guard: standby':'Safety Guard: starting / standby';
+    return;
+  }
+
+  if(mode==='nativeFallback'){
+    panel.classList.add('safe');
+
+    title.textContent='Slack/cache fallback owns audio';
+    detail.textContent='The pre-Router sound path is active. Router audio is disabled; visual alerts, Activity, and deep links can keep running.';
+
+    guard.textContent=
+      o.guardFresh
+        ? 'Safety Guard: standby Â· fallback available'
+        : 'Safety Guard: starting';
+
+    banner.classList.add('show','safe');
+    banner.textContent='âœ“ FALLBACK AUDIO ACTIVE Â· ShinySlack Router is not the sole audio source.';
+    return;
+  }
+
+  if(mode==='routerExclusive'){
+    panel.classList.add(o.risk?'risk':'router');
+
+    title.textContent='ShinySlack Router owns audio';
+
+    if(o.audioIntentionallyMuted){
+      banner.classList.add('show','warning');
+      banner.textContent='âš  ROUTER AUDIO IS MUTED Â· Visual alerts still work, but audible notifications are intentionally disabled.';
+    }else if(o.risk){
+      banner.classList.add('show','danger');
+      banner.textContent='âš  AUDIO FAILSAFE ACTIVE Â· Router health is degraded. Automatic fallback is armed or being attempted.';
+    }else{
+      banner.classList.add('show','router');
+      banner.textContent='SHINYSLACK ROUTER AUDIO ACTIVE Â· Safety Guard armed Â· fallback available.';
+    }
+
+    detail.textContent=
+      o.risk
+        ? 'Router mode is active but a safety check is not green. The guard will try to restart the Router and restore the previous Slack/cache sound path if recovery fails.'
+        : 'ShinySlack is responsible for notification audio. The exact pre-Router cache bytes are saved for fallback.';
+
+    guard.textContent=
+      'Safety Guard: '+
+      (o.guardState||(o.guardFresh?'armed':'starting'))+
+      (o.guardMessage?' Â· '+o.guardMessage:'');
+
+    return;
+  }
+
+  panel.classList.add('risk');
+  title.textContent='Unknown sound ownership state';
+  detail.textContent='Use fallback until this state is resolved.';
+  banner.classList.add('show','danger');
+  banner.textContent='âš  SOUND OWNERSHIP STATE UNKNOWN';
+}
+
 async function status(){
   if(window.__shinyStatusInFlight){
     return;
@@ -2863,6 +3136,7 @@ async function status(){
     $('watcher').textContent=s.installed?(s.watcherRunning?'Watching':'Not watching'):'Not installed'; cls($('watcher'),s.watcherRunning?'good':'warn'); $('watcher').title=s.watcherDetail||'';
     renderActivity(s.notifications||[]);
     renderHistoryBackfill(s.historyBackfill||{});
+    renderSoundOwnership(s.soundOwnership||{});
 
     if(
       $('alertAutoDismiss') &&
@@ -2896,6 +3170,68 @@ for(const ev of ['dragenter','dragover'])$('drop').addEventListener(ev,e=>{e.pre
 $('apply').onclick=async()=>{if(!selected)return;$('apply').disabled=true;show(true,'Uploading MP3...');try{const b64=await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result.split(',')[1]);fr.onerror=rej;fr.readAsDataURL(selected)});const j=await api('/api/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fileName:selected.name,dataBase64:b64})});await waitOperation(j.operationId,'Applying sound')}catch(e){show(false,e.message)}finally{$('apply').disabled=false}};
 $('repair').onclick=async()=>{try{const j=await api('/api/repair',{method:'POST'});await waitOperation(j.operationId,'Repairing ShinySlack')}catch(e){show(false,e.message)}};
 $('refresh').onclick=status;
+
+const soundOwnershipToggle=
+  $('soundOwnershipToggle');
+
+if(soundOwnershipToggle){
+  soundOwnershipToggle.onchange=
+    async()=>{
+
+      const wantsRouter=
+        soundOwnershipToggle.checked;
+
+      if(wantsRouter){
+        const proceed=
+          confirm(
+            'Enable ShinySlack Router audio?\n\n'+
+            'ShinySlack will verify the Router, default sound, and volume BEFORE suppressing the existing Slack/cache sound path.\n\n'+
+            'An independent Safety Guard will attempt to restart the Router and restore the exact pre-Router sound bytes if recovery fails.\n\n'+
+            'Slack may briefly close and relaunch during the transition.'
+          );
+
+        if(!proceed){
+          soundOwnershipToggle.checked=false;
+          return;
+        }
+      }
+
+      soundOwnershipToggle.disabled=true;
+
+      try{
+        const result=
+          await api(
+            '/api/sound-ownership',
+            {
+              method:'POST',
+              headers:{
+                'Content-Type':'application/json'
+              },
+              body:JSON.stringify({
+                mode:
+                  wantsRouter
+                    ? 'RouterExclusive'
+                    : 'NativeFallback'
+              })
+            }
+          );
+
+        await waitOperation(
+          result.operationId,
+          wantsRouter
+            ? 'Enabling guarded Router audio'
+            : 'Restoring fallback audio'
+        );
+
+        await status();
+      }catch(e){
+        show(false,e.message);
+        await status();
+      }finally{
+        soundOwnershipToggle.disabled=false;
+      }
+    };
+}
 
 const alertAutoDismiss=$('alertAutoDismiss');
 

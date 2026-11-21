@@ -781,6 +781,128 @@ function Start-HistoryBackfillOnce {
     Out-Null
 }
 
+function Get-SoundOwnershipStatus {
+    param([bool]$RouterRunning)
+
+    $modePath=Join-Path $script:Root 'sound-ownership.json'
+    $guardPath=Join-Path $script:Root 'sound-safety-status.json'
+    $configPath=Join-Path $script:Root 'channel-routes.json'
+
+    $mode='legacy'
+    $transition=$false
+    $suppressed=$false
+    $lastError=''
+
+    if(Test-Path $modePath){
+        try{
+            $state=
+                Get-Content `
+                    $modePath `
+                    -Raw `
+                    -Encoding UTF8 |
+                ConvertFrom-Json
+
+            if($state.mode){
+                $mode=[string]$state.mode
+            }
+
+            $transition=[bool]$state.transition
+            $suppressed=[bool]$state.nativeSuppressed
+            $lastError=[string]$state.lastError
+        }catch{}
+    }
+
+    $enabled=$true
+    $volume=1.0
+    $defaultReady=$false
+
+    if(Test-Path $configPath){
+        try{
+            $cfg=
+                Get-Content `
+                    $configPath `
+                    -Raw `
+                    -Encoding UTF8 |
+                ConvertFrom-Json
+
+            if($null -ne $cfg.enabled){
+                $enabled=[bool]$cfg.enabled
+            }
+
+            if($null -ne $cfg.volume){
+                $volume=[double]$cfg.volume
+            }
+
+            if(
+                $cfg.defaultSound -and
+                (Test-Path ([string]$cfg.defaultSound))
+            ){
+                $defaultReady=$true
+            }
+        }catch{}
+    }
+
+    $guardFresh=$false
+    $guardState=''
+    $guardMessage=''
+    $guardHealthy=$false
+
+    if(Test-Path $guardPath){
+        try{
+            $guard=
+                Get-Content `
+                    $guardPath `
+                    -Raw `
+                    -Encoding UTF8 |
+                ConvertFrom-Json
+
+            $guardState=[string]$guard.state
+            $guardMessage=[string]$guard.message
+            $guardHealthy=[bool]$guard.routerHealthy
+
+            if($guard.lastCheck){
+                $age=(
+                    (Get-Date) -
+                    [datetime]::Parse([string]$guard.lastCheck)
+                ).TotalSeconds
+
+                $guardFresh=(
+                    $age -ge 0 -and
+                    $age -le 20
+                )
+            }
+        }catch{}
+    }
+
+    $risk=$false
+
+    if($mode -eq 'routerExclusive'){
+        $risk=(
+            !$RouterRunning -or
+            !$defaultReady -or
+            !$guardFresh -or
+            !$guardHealthy
+        )
+    }
+
+    [pscustomobject]@{
+        mode=$mode
+        transition=$transition
+        nativeSuppressed=$suppressed
+        routerRunning=$RouterRunning
+        routerAudioEnabled=$enabled
+        volume=$volume
+        defaultReady=$defaultReady
+        guardFresh=$guardFresh
+        guardState=$guardState
+        guardMessage=$guardMessage
+        guardRouterHealthy=$guardHealthy
+        risk=$risk
+        audioIntentionallyMuted=(!$enabled -or $volume -le 0)
+        lastError=$lastError
+    }
+}
+
 function Get-StatusObject {
     param([string]$RequestId='STATUS')
     Write-WebDiag 'STATUS 1/8: checking install marker.' $RequestId
@@ -933,6 +1055,7 @@ function Get-StatusObject {
             agentBuild     = $agentBuild
             channelAudio   = $channelAudio
             historyBackfill = Get-HistoryBackfillStatus
+            soundOwnership = Get-SoundOwnershipStatus -RouterRunning ([bool]$channelAudio.routerRunning)
         }
 
 
@@ -1724,6 +1847,9 @@ $listener=$null}}
                                 enabled =
                                     [bool]$obj.channelAudio.enabled
 
+                                volume =
+                                    [double]$obj.channelAudio.volume
+
                                 defaultSound =
                                     [string]$obj.channelAudio.defaultSound
 
@@ -1734,6 +1860,59 @@ $listener=$null}}
                                     [string]$obj.channelAudio.lastDetected
                             }
                     }
+
+
+                if(
+                    $obj.PSObject.Properties[
+                        'soundOwnership'
+                    ]
+                ) {
+
+                    $payload['soundOwnership'] =
+                        [ordered]@{
+                            mode =
+                                [string]$obj.soundOwnership.mode
+
+                            transition =
+                                [bool]$obj.soundOwnership.transition
+
+                            nativeSuppressed =
+                                [bool]$obj.soundOwnership.nativeSuppressed
+
+                            routerRunning =
+                                [bool]$obj.soundOwnership.routerRunning
+
+                            routerAudioEnabled =
+                                [bool]$obj.soundOwnership.routerAudioEnabled
+
+                            volume =
+                                [double]$obj.soundOwnership.volume
+
+                            defaultReady =
+                                [bool]$obj.soundOwnership.defaultReady
+
+                            guardFresh =
+                                [bool]$obj.soundOwnership.guardFresh
+
+                            guardState =
+                                [string]$obj.soundOwnership.guardState
+
+                            guardMessage =
+                                [string]$obj.soundOwnership.guardMessage
+
+                            guardRouterHealthy =
+                                [bool]$obj.soundOwnership.guardRouterHealthy
+
+                            risk =
+                                [bool]$obj.soundOwnership.risk
+
+                            audioIntentionallyMuted =
+                                [bool]$obj.soundOwnership.audioIntentionallyMuted
+
+                            lastError =
+                                [string]$obj.soundOwnership.lastError
+                        }
+                }
 
 
                 if(
@@ -1919,6 +2098,67 @@ if(!$latest) {
                 }
                 continue
             }
+            if(
+                $req.Method -eq 'POST' -and
+                $req.Path -eq '/api/sound-ownership'
+            ){
+                try{
+                    $j=$req.Body|ConvertFrom-Json
+                    $mode=[string]$j.mode
+
+                    if(
+                        $mode -notin
+                        @(
+                            'RouterExclusive',
+                            'NativeFallback'
+                        )
+                    ){
+                        throw 'Invalid sound ownership mode.'
+                    }
+
+                    $scriptPath=
+                        Join-Path `
+                            $script:Root `
+                            'Set-SoundOwnership.ps1'
+
+                    if(!(Test-Path $scriptPath)){
+                        throw 'Set-SoundOwnership.ps1 is missing.'
+                    }
+
+                    $id=
+                        Start-AsyncOperation `
+                            -Script $scriptPath `
+                            -Arguments @(
+                                '-Mode',$mode,
+                                '-Reason','dashboard'
+                            ) `
+                            -RequestId $rid
+
+                    Json-Response `
+                        $client `
+                        @{
+                            ok=$true
+                            operationId=$id
+                        } `
+                        202
+                }catch{
+                    Write-WebException `
+                        $_ `
+                        $rid `
+                        'Sound ownership transition failed'
+
+                    Json-Response `
+                        $client `
+                        @{
+                            ok=$false
+                            error=$_.Exception.Message
+                        } `
+                        500
+                }
+
+                continue
+            }
+
             if($req.Method -eq 'POST' -and $req.Path -eq '/api/apply'){
                 try{
                     Write-WebDiag "Apply entered. JSON chars=$($req.Body.Length)" $rid
