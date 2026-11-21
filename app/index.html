@@ -434,7 +434,7 @@ async function status(){
     $('health').textContent=s.installed?soundText:'Not installed';
     cls($('health'),(s.health==='Custom'||s.health==='ConfiguredDeferred')?'good':((s.health==='Stock'||s.health==='Deferred')?'warn':'bad'));
     $('watcher').textContent=s.installed?(s.watcherRunning?'Watching':'Not watching'):'Not installed'; cls($('watcher'),s.watcherRunning?'good':'warn'); $('watcher').title=s.watcherDetail||'';
-    $('log').textContent=s.log||'No log yet.';
+    renderActivity(s.notifications||[]);
     renderChannelAudio(s);
   }catch(e){show(false,e.message)}
 }
