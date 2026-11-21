@@ -1,0 +1,679 @@
+﻿param(
+    [int]$PollMilliseconds = 50,
+    [int]$SettleMilliseconds = 100
+)
+
+$ErrorActionPreference = "Stop"
+
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
+Add-Type -AssemblyName PresentationCore
+
+$script:Build = "TOAST-ROUTER-V3"
+
+$script:Root = Join-Path $env:LOCALAPPDATA "ShinySlack"
+$script:ConfigPath = Join-Path $script:Root "channel-routes.json"
+$script:LogPath = Join-Path $script:Root "channel-router.log"
+$script:WaveCacheDir = Join-Path $script:Root "wave-cache"
+$script:SoundPlayers = @{}
+
+New-Item -ItemType Directory -Path $script:WaveCacheDir -Force | Out-Null
+
+$script:Routes = @{}
+$script:DefaultSound = $null
+$script:Enabled = $true
+$script:Volume = 1.0
+$script:ConfigStamp = $null
+$script:Players = New-Object System.Collections.ArrayList
+
+$screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+$desktop = [System.Windows.Automation.AutomationElement]::RootElement
+
+$teamCondition = New-Object System.Windows.Automation.PropertyCondition(
+    [System.Windows.Automation.AutomationElement]::ClassNameProperty,
+    "OpenTeam"
+)
+
+$channelCondition = New-Object System.Windows.Automation.PropertyCondition(
+    [System.Windows.Automation.AutomationElement]::ClassNameProperty,
+    "OpenChannel"
+)
+
+function Say {
+    param(
+        [string]$Text,
+        [ConsoleColor]$Color = [ConsoleColor]::Gray
+    )
+
+    Write-Host $Text -ForegroundColor $Color
+}
+
+function Write-RouterLog {
+    param([string]$Message)
+
+    try {
+        Add-Content `
+            -LiteralPath $script:LogPath `
+            -Value ("{0} {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"),$Message) `
+            -Encoding UTF8
+    } catch {}
+}
+
+function Load-Config {
+
+    $routes = @{}
+    $defaultSound = $null
+    $enabled = $true
+    $volume = 1.0
+
+    if(Test-Path $script:ConfigPath) {
+
+        try {
+            $cfg = Get-Content $script:ConfigPath -Raw -Encoding UTF8 |
+                ConvertFrom-Json
+
+            if($null -ne $cfg.enabled) {
+                $enabled = [bool]$cfg.enabled
+            }
+
+            if($null -ne $cfg.volume) {
+                $volume = [double]$cfg.volume
+            }
+
+            if($null -ne $cfg.defaultSound) {
+                $defaultSound = [string]$cfg.defaultSound
+            }
+
+            if($null -ne $cfg.routes) {
+
+                foreach($p in $cfg.routes.PSObject.Properties) {
+                    $routes[[string]$p.Name] = [string]$p.Value
+                }
+            }
+        }
+        catch {
+            Say "CONFIG ERROR: $($_.Exception.Message)" Red
+            return
+        }
+    }
+
+    if($volume -lt 0) { $volume = 0 }
+    if($volume -gt 1) { $volume = 1 }
+
+    $script:Routes = $routes
+    $script:DefaultSound = $defaultSound
+    $script:Enabled = $enabled
+    $script:Volume = $volume
+
+    if(Test-Path $script:ConfigPath) {
+        $script:ConfigStamp =
+            (Get-Item $script:ConfigPath).LastWriteTimeUtc
+    }
+
+    Say ("Config loaded: routes={0} default={1}" -f `
+        $routes.Count,
+        $(if($defaultSound){"YES"}else{"NO"})
+    ) DarkGray
+}
+
+function Reload-ConfigIfChanged {
+
+    if(!(Test-Path $script:ConfigPath)) {
+        return
+    }
+
+    $stamp = (Get-Item $script:ConfigPath).LastWriteTimeUtc
+
+    if(
+        $null -eq $script:ConfigStamp -or
+        $stamp -ne $script:ConfigStamp
+    ) {
+        Load-Config
+        Prime-SoundCache
+        Say "Configuration reloaded." Cyan
+    }
+}
+
+function Cleanup-Players {
+
+    for($i = $script:Players.Count - 1; $i -ge 0; $i--) {
+
+        if((Get-Date) -ge $script:Players[$i].Expires) {
+
+            try {
+                $script:Players[$i].Player.Stop()
+                $script:Players[$i].Player.Close()
+            } catch {}
+
+            $script:Players.RemoveAt($i)
+        }
+    }
+}
+
+function Get-LowLatencyPlayer {
+    param([string]$Path)
+
+    if([string]::IsNullOrWhiteSpace($Path)) {
+        return $null
+    }
+
+    if(!(Test-Path -LiteralPath $Path)) {
+        return $null
+    }
+
+    $full = [IO.Path]::GetFullPath($Path)
+    $item = Get-Item -LiteralPath $full
+
+    $key = "{0}|{1}" -f `
+        $full,
+        $item.LastWriteTimeUtc.Ticks
+
+    if($script:SoundPlayers.ContainsKey($key)) {
+        return $script:SoundPlayers[$key]
+    }
+
+    $hash = (Get-FileHash `
+        -LiteralPath $full `
+        -Algorithm SHA256).Hash
+
+    $wav = Join-Path `
+        $script:WaveCacheDir `
+        ($hash + ".wav")
+
+    if(!(Test-Path -LiteralPath $wav)) {
+
+        $ff = Get-Command ffmpeg.exe `
+            -ErrorAction SilentlyContinue
+
+        if(!$ff) {
+            $ff = Get-Command ffmpeg `
+                -ErrorAction SilentlyContinue
+        }
+
+        if(!$ff) {
+            throw "ffmpeg is required for low-latency audio."
+        }
+
+        & $ff.Source `
+            -loglevel error `
+            -y `
+            -i $full `
+            -vn `
+            -ac 2 `
+            -ar 44100 `
+            -c:a pcm_s16le `
+            $wav
+
+        if(
+            $LASTEXITCODE -ne 0 -or
+            !(Test-Path -LiteralPath $wav)
+        ) {
+            throw "Could not build WAV cache for $full"
+        }
+    }
+
+    $player = New-Object System.Media.SoundPlayer `
+        -ArgumentList $wav
+
+    # Load the entire WAV NOW, not when the notification arrives.
+    $player.Load()
+
+    $script:SoundPlayers[$key] = $player
+
+    return $player
+}
+
+function Prime-SoundCache {
+
+    $paths = @()
+
+    if($script:DefaultSound) {
+        $paths += $script:DefaultSound
+    }
+
+    foreach($p in $script:Routes.Values) {
+        if($p) {
+            $paths += $p
+        }
+    }
+
+    foreach($path in @($paths | Select-Object -Unique)) {
+
+        try {
+            [void](Get-LowLatencyPlayer -Path $path)
+
+            Say (
+                "PRELOADED -> {0}" -f `
+                [IO.Path]::GetFileName($path)
+            ) DarkGray
+        }
+        catch {
+            Say (
+                "PRELOAD ERROR: {0}" -f `
+                $_.Exception.Message
+            ) Red
+        }
+    }
+}
+
+function Play-Sound {
+    param(
+        [string]$Path,
+        [string]$Reason
+    )
+
+    if([string]::IsNullOrWhiteSpace($Path)) {
+        Say "NO SOUND PATH CONFIGURED" Red
+        return
+    }
+
+    if(!(Test-Path -LiteralPath $Path)) {
+        Say "MISSING SOUND: $Path" Red
+        Write-RouterLog "MISSING $Reason path=$Path"
+        return
+    }
+
+    try {
+
+        $player = Get-LowLatencyPlayer -Path $Path
+
+        if($null -eq $player) {
+            throw "No audio player available."
+        }
+
+        # WAV is already decoded and resident.
+        $player.Play()
+
+        $name = [IO.Path]::GetFileName($Path)
+
+        Say "PLAYING -> $name" Green
+        Write-RouterLog "$Reason sound=$name backend=WAV"
+    }
+    catch {
+        Say "PLAYBACK ERROR: $($_.Exception.Message)" Red
+        Write-RouterLog "PLAYBACK_ERROR $Reason $($_.Exception.Message)"
+    }
+}
+function Get-RuntimeKey {
+    param($Element)
+
+    try {
+        $rid = ($Element.GetRuntimeId() -join ".")
+        if($rid) {
+            return $rid
+        }
+    } catch {}
+
+    try {
+        $r = $Element.Current.BoundingRectangle
+        return "{0}|{1}|{2}|{3}|{4}" -f `
+            $Element.Current.Name,
+            [int]$r.X,
+            [int]$r.Y,
+            [int]$r.Width,
+            [int]$r.Height
+    } catch {}
+
+    return [guid]::NewGuid().ToString()
+}
+
+function Test-ToastZone {
+    param($Rect)
+
+    return (
+        $Rect.Width -gt 0 -and
+        $Rect.Height -gt 0 -and
+        $Rect.X -ge ($screen.Right - 600) -and
+        $Rect.Y -ge ($screen.Bottom - 550)
+    )
+}
+
+function Get-ToastTeams {
+
+    $result = @{}
+
+    $elements = $desktop.FindAll(
+        [System.Windows.Automation.TreeScope]::Descendants,
+        $teamCondition
+    )
+
+    foreach($e in $elements) {
+
+        try {
+            $rect = $e.Current.BoundingRectangle
+
+            if(!(Test-ToastZone $rect)) {
+                continue
+            }
+
+            $key = Get-RuntimeKey $e
+
+            $result[$key] = [pscustomobject]@{
+                Element = $e
+                Name = [string]$e.Current.Name
+                X = [double]$rect.X
+                Y = [double]$rect.Y
+                W = [double]$rect.Width
+                H = [double]$rect.Height
+            }
+        }
+        catch {}
+    }
+
+    return $result
+}
+
+function Get-ToastChannels {
+
+    $result = @()
+
+    $elements = $desktop.FindAll(
+        [System.Windows.Automation.TreeScope]::Descendants,
+        $channelCondition
+    )
+
+    foreach($e in $elements) {
+
+        try {
+            $rect = $e.Current.BoundingRectangle
+
+            if(!(Test-ToastZone $rect)) {
+                continue
+            }
+
+            $name = [string]$e.Current.Name
+
+            if([string]::IsNullOrWhiteSpace($name)) {
+                continue
+            }
+
+            $channel = $name.Trim()
+
+            if($channel.StartsWith("#")) {
+                $channel = $channel.Substring(1)
+            }
+
+            $result += [pscustomobject]@{
+                Key = Get-RuntimeKey $e
+                Channel = $channel
+                X = [double]$rect.X
+                Y = [double]$rect.Y
+                W = [double]$rect.Width
+                H = [double]$rect.Height
+            }
+        }
+        catch {}
+    }
+
+    return @($result)
+}
+
+function Find-ChannelForToast {
+    param(
+        $Team,
+        $Channels
+    )
+
+    $best = $null
+    $bestDistance = 999999
+
+    foreach($c in $Channels) {
+
+        $horizontalOverlap =
+            ($c.X -le ($Team.X + $Team.W + 80)) -and
+            (($c.X + $c.W) -ge ($Team.X - 80))
+
+        if(!$horizontalOverlap) {
+            continue
+        }
+
+        # Channel normally appears directly below workspace/team.
+        $distance = [Math]::Abs(
+            $c.Y - ($Team.Y + $Team.H)
+        )
+
+        if($distance -lt $bestDistance -and $distance -lt 140) {
+            $best = $c.Channel
+            $bestDistance = $distance
+        }
+    }
+
+    return $best
+}
+
+Load-Config
+Prime-SoundCache
+
+Say ""
+Say "ShinySlack Toast Router V2" Cyan
+Say "==========================" DarkCyan
+Say ""
+Say "Toast detection owns the event." Green
+Say "Channel is optional routing metadata." Green
+Say "No channel/mapping -> DEFAULT." Yellow
+Say ""
+Say "READY." Green
+Say ""
+
+Write-RouterLog "START build=$script:Build mode=channel-first"
+
+# Channel elements own normal channel notifications.
+# OpenTeam is only a fallback for notifications that expose no channel.
+$activeChannels = @{}
+$recentChannelFires = @{}
+
+$pendingTeams = @{}
+$activeTeams = @{}
+$recentFallbackFires = @{}
+
+$channelDedupeMilliseconds = 300
+$fallbackMilliseconds = 650
+
+$lastBeat = Get-Date
+
+while($true) {
+
+    try {
+
+        Reload-ConfigIfChanged
+        Cleanup-Players
+
+        $now = Get-Date
+
+        # ------------------------------------------------------------
+        # PRIMARY PATH
+        # OpenChannel appearing in the toast zone fires immediately.
+        # ------------------------------------------------------------
+
+        $channels = @(Get-ToastChannels)
+        $presentChannels = @{}
+
+        foreach($c in $channels) {
+
+            $elementKey = [string]$c.Key
+
+            if([string]::IsNullOrWhiteSpace($elementKey)) {
+                continue
+            }
+
+            $presentChannels[$elementKey] = $true
+
+            if($activeChannels.ContainsKey($elementKey)) {
+                continue
+            }
+
+            $activeChannels[$elementKey] = $true
+
+            # Slack can rebuild the accessibility element with a new
+            # RuntimeId while the same toast is still visible.
+            # Suppress only extremely-close repeats for the same channel.
+            $channelKey = [string]$c.Channel
+
+            $last = $recentChannelFires[$channelKey]
+
+            if(
+                $last -and
+                (($now - $last).TotalMilliseconds -lt $channelDedupeMilliseconds)
+            ) {
+                Write-RouterLog "DEDUPE channel=#$channelKey"
+                continue
+            }
+
+            $recentChannelFires[$channelKey] = $now
+
+            Say "----------------------------------------" DarkCyan
+            Say "SLACK CHANNEL TOAST" Cyan
+            Say "Channel:   #$channelKey" White
+
+            if($script:Routes.ContainsKey($channelKey)) {
+
+                Say "ROUTE MATCH" Green
+
+                Play-Sound `
+                    -Path $script:Routes[$channelKey] `
+                    -Reason "ROUTED channel=#$channelKey"
+            }
+            else {
+
+                Say "DEFAULT ROUTE" Yellow
+
+                Play-Sound `
+                    -Path $script:DefaultSound `
+                    -Reason "DEFAULT channel=#$channelKey"
+            }
+        }
+
+        # Allow a new toast to use the same RuntimeId after the old one disappears.
+        foreach($key in @($activeChannels.Keys)) {
+
+            if(!$presentChannels.ContainsKey($key)) {
+                $activeChannels.Remove($key)
+            }
+        }
+
+        # Keep recent-fire memory tiny.
+        foreach($key in @($recentChannelFires.Keys)) {
+
+            if(
+                (($now - $recentChannelFires[$key]).TotalSeconds) -gt 3
+            ) {
+                $recentChannelFires.Remove($key)
+            }
+        }
+
+
+        # ------------------------------------------------------------
+        # FALLBACK PATH
+        # For DMs / unusual Slack notifications with OpenTeam but no
+        # OpenChannel, wait briefly before using DEFAULT.
+        # ------------------------------------------------------------
+
+        $teams = Get-ToastTeams
+        $presentTeams = @{}
+
+        foreach($key in $teams.Keys) {
+
+            $presentTeams[$key] = $true
+
+            if(!$activeTeams.ContainsKey($key)) {
+
+                $activeTeams[$key] = $true
+
+                $pendingTeams[$key] = [pscustomobject]@{
+                    FirstSeen = Get-Date
+                    Team = $teams[$key]
+                }
+            }
+        }
+
+        foreach($key in @($pendingTeams.Keys)) {
+
+            if(!$presentTeams.ContainsKey($key)) {
+                $pendingTeams.Remove($key)
+                continue
+            }
+
+            $age = (
+                (Get-Date) -
+                $pendingTeams[$key].FirstSeen
+            ).TotalMilliseconds
+
+            if($age -lt $fallbackMilliseconds) {
+                continue
+            }
+
+            $team = $teams[$key]
+
+            # If a channel is exposed, the primary channel path owns
+            # this notification. Never play a second/default sound here.
+            $channel = Find-ChannelForToast `
+                -Team $team `
+                -Channels $channels
+
+            if($channel) {
+                $pendingTeams.Remove($key)
+                continue
+            }
+
+            $fallbackKey = [string]$team.Name
+            $lastFallback = $recentFallbackFires[$fallbackKey]
+
+            if(
+                $lastFallback -and
+                (((Get-Date) - $lastFallback).TotalMilliseconds -lt 600)
+            ) {
+                $pendingTeams.Remove($key)
+                continue
+            }
+
+            $recentFallbackFires[$fallbackKey] = Get-Date
+
+            Say "----------------------------------------" DarkCyan
+            Say "SLACK TOAST DETECTED" Cyan
+
+            if($team.Name) {
+                Say "Workspace: $($team.Name)" DarkGray
+            }
+
+            Say "Channel:   [none exposed]" Yellow
+            Say "DEFAULT ROUTE" Yellow
+
+            Play-Sound `
+                -Path $script:DefaultSound `
+                -Reason "DEFAULT channel=unknown"
+
+            $pendingTeams.Remove($key)
+        }
+
+        foreach($key in @($activeTeams.Keys)) {
+
+            if(!$presentTeams.ContainsKey($key)) {
+                $activeTeams.Remove($key)
+                $pendingTeams.Remove($key)
+            }
+        }
+
+
+        if(((Get-Date) - $lastBeat).TotalSeconds -ge 10) {
+
+            Say (
+                "[alive] routes={0} channels={1} teams={2}" -f `
+                $script:Routes.Count,
+                $activeChannels.Count,
+                $activeTeams.Count
+            ) DarkGray
+
+            $lastBeat = Get-Date
+        }
+    }
+    catch {
+
+        Say "ROUTER ERROR: $($_.Exception.Message)" Red
+        Write-RouterLog "ERROR $($_.Exception.Message)"
+
+        Start-Sleep -Milliseconds 250
+    }
+
+    Start-Sleep -Milliseconds $PollMilliseconds
+}

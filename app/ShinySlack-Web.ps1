@@ -607,7 +607,7 @@ function Get-StatusObject {
 
                 if(
                     $line -match `
-                    '^(?<stamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) (?<kind>ROUTED|DEFAULT|STACK_EXTRA|STACK_EXTRA_DEFAULT) channel=(?<channel>\S+) sound=(?<sound>.+?) backend=(?<backend>\S+)$'
+                    '^(?<stamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) (?<kind>ROUTED|DEFAULT|STACK_EXTRA|STACK_EXTRA_DEFAULT) channel=(?<channel>\S+) sound=(?<sound>.+?) backend=(?<backend>\S+)(?:\s+.*)?$'
                 ) {
                     $stamp   = $Matches['stamp']
                     $kind    = $Matches['kind']
@@ -762,70 +762,78 @@ function Get-OperationObject {
 
 function Get-ChannelAudioStatus {
 
+    # SHINY-AUDIO-STATUS-V2
+
     $configPath =
-        Join-Path $script:Root 'channel-routes.json'
+        Join-Path `
+            $script:Root `
+            'channel-routes.json'
+
 
     $routerLog =
-        Join-Path $script:Root 'channel-router.log'
+        Join-Path `
+            $script:Root `
+            'channel-router.log'
+
 
     $routerStdout =
-        Join-Path $script:Root 'channel-router.stdout.log'
+        Join-Path `
+            $script:Root `
+            'channel-router.stdout.log'
 
 
     $routerRunning = $false
-    $enabled = $true
-    $defaultSound = ''
-    $routes = @()
-    $lastDetected = ''
+    $enabled       = $true
+    $volume        = 1.0
+    $defaultSound  = ''
+    $routes        = @()
+    $lastDetected  = ''
 
 
     # --------------------------------------------------------
     # ROUTER STATUS
-    #
-    # Absolutely no process enumeration inside /api/status.
     # --------------------------------------------------------
 
     foreach($heartbeatPath in @(
         $routerStdout,
         $routerLog
-    )) {
+    )){
 
-        if(Test-Path -LiteralPath $heartbeatPath) {
-
-            try {
-
-                $info =
-                    Get-Item `
-                        -LiteralPath $heartbeatPath `
-                        -ErrorAction Stop
-
-
-                $ageSeconds =
-                    (
-                        (Get-Date).ToUniversalTime() -
-                        $info.LastWriteTimeUtc
-                    ).TotalSeconds
-
-
-                # Five-minute grace avoids false "Stopped"
-                # caused by redirected stdout buffering.
-                if($ageSeconds -le 300) {
-
-                    $routerRunning = $true
-
-                    break
-                }
-            }
-            catch {}
+        if(!(Test-Path -LiteralPath $heartbeatPath)){
+            continue
         }
+
+
+        try {
+
+            $info =
+                Get-Item `
+                    -LiteralPath $heartbeatPath `
+                    -ErrorAction Stop
+
+
+            $ageSeconds =
+                (
+                    (Get-Date).ToUniversalTime() -
+                    $info.LastWriteTimeUtc
+                ).TotalSeconds
+
+
+            if($ageSeconds -le 300){
+
+                $routerRunning = $true
+                break
+            }
+        }
+        catch {}
     }
 
 
     # --------------------------------------------------------
-    # ROUTING CONFIG
+    # ROUTER CONFIG
     # --------------------------------------------------------
 
-    if(Test-Path -LiteralPath $configPath) {
+    if(Test-Path -LiteralPath $configPath){
 
         try {
 
@@ -838,12 +846,31 @@ function Get-ChannelAudioStatus {
                 ConvertFrom-Json
 
 
-            if($null -ne $cfg.enabled) {
-                $enabled = [bool]$cfg.enabled
+            if($null -ne $cfg.enabled){
+
+                $enabled =
+                    [bool]$cfg.enabled
             }
 
 
-            if($cfg.defaultSound) {
+            if($null -ne $cfg.volume){
+
+                $volume =
+                    [double]$cfg.volume
+            }
+
+
+            if($volume -lt 0){
+                $volume = 0
+            }
+
+
+            if($volume -gt 1){
+                $volume = 1
+            }
+
+
+            if($cfg.defaultSound){
 
                 $defaultSound =
                     Split-Path `
@@ -852,16 +879,17 @@ function Get-ChannelAudioStatus {
             }
 
 
-            if($null -ne $cfg.routes) {
+            if($null -ne $cfg.routes){
 
                 foreach(
                     $p in
                     $cfg.routes.PSObject.Properties
-                ) {
+                ){
 
                     $routes +=
                         [pscustomobject]@{
-                            channel = [string]$p.Name
+                            channel =
+                                [string]$p.Name
 
                             sound =
                                 Split-Path `
@@ -886,7 +914,7 @@ function Get-ChannelAudioStatus {
     # LAST DETECTED
     # --------------------------------------------------------
 
-    if(Test-Path -LiteralPath $routerLog) {
+    if(Test-Path -LiteralPath $routerLog){
 
         try {
 
@@ -904,12 +932,12 @@ function Get-ChannelAudioStatus {
                 $i = $lines.Count - 1;
                 $i -ge 0;
                 $i--
-            ) {
+            ){
 
                 if(
                     $lines[$i] -match
                     'channel=#([^\s]+)'
-                ) {
+                ){
 
                     $lastDetected =
                         '#' + $matches[1]
@@ -921,7 +949,7 @@ function Get-ChannelAudioStatus {
                 if(
                     $lines[$i] -match
                     'channel=unknown'
-                ) {
+                ){
 
                     $lastDetected =
                         '[notification without channel]'
@@ -937,6 +965,7 @@ function Get-ChannelAudioStatus {
     [pscustomobject]@{
         routerRunning = $routerRunning
         enabled       = $enabled
+        volume        = $volume
         defaultSound  = $defaultSound
         routes        = @($routes)
         lastDetected  = $lastDetected
@@ -1064,43 +1093,53 @@ try {
     for($p=$Port;$p -lt ($Port+20);$p++){try{$listener=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,$p);$listener.Start();$Port=$p;break}catch{
 function Get-ChannelAudioStatus {
 
+    # SHINY-AUDIO-STATUS-V2
+
     $configPath =
-        Join-Path $script:Root 'channel-routes.json'
+        Join-Path `
+            $script:Root `
+            'channel-routes.json'
+
 
     $routerLog =
-        Join-Path $script:Root 'channel-router.log'
+        Join-Path `
+            $script:Root `
+            'channel-router.log'
+
 
     $routerStdout =
-        Join-Path $script:Root 'channel-router.stdout.log'
+        Join-Path `
+            $script:Root `
+            'channel-router.stdout.log'
 
 
     $routerRunning = $false
-    $enabled = $true
-    $defaultSound = ''
-    $routes = @()
-    $lastDetected = ''
+    $enabled       = $true
+    $volume        = 1.0
+    $defaultSound  = ''
+    $routes        = @()
+    $lastDetected  = ''
 
 
     # --------------------------------------------------------
     # ROUTER STATUS
-    #
-    # No CIM / WMI in the web request.
     # --------------------------------------------------------
 
-    foreach($path in @(
+    foreach($heartbeatPath in @(
         $routerStdout,
         $routerLog
-    )) {
+    )){
 
-        if(!(Test-Path -LiteralPath $path)) {
+        if(!(Test-Path -LiteralPath $heartbeatPath)){
             continue
         }
+
 
         try {
 
             $info =
                 Get-Item `
-                    -LiteralPath $path `
+                    -LiteralPath $heartbeatPath `
                     -ErrorAction Stop
 
 
@@ -1111,7 +1150,7 @@ function Get-ChannelAudioStatus {
                 ).TotalSeconds
 
 
-            if($ageSeconds -le 300) {
+            if($ageSeconds -le 300){
 
                 $routerRunning = $true
                 break
@@ -1122,10 +1161,10 @@ function Get-ChannelAudioStatus {
 
 
     # --------------------------------------------------------
-    # ROUTES
+    # ROUTER CONFIG
     # --------------------------------------------------------
 
-    if(Test-Path -LiteralPath $configPath) {
+    if(Test-Path -LiteralPath $configPath){
 
         try {
 
@@ -1138,12 +1177,31 @@ function Get-ChannelAudioStatus {
                 ConvertFrom-Json
 
 
-            if($null -ne $cfg.enabled) {
-                $enabled = [bool]$cfg.enabled
+            if($null -ne $cfg.enabled){
+
+                $enabled =
+                    [bool]$cfg.enabled
             }
 
 
-            if($cfg.defaultSound) {
+            if($null -ne $cfg.volume){
+
+                $volume =
+                    [double]$cfg.volume
+            }
+
+
+            if($volume -lt 0){
+                $volume = 0
+            }
+
+
+            if($volume -gt 1){
+                $volume = 1
+            }
+
+
+            if($cfg.defaultSound){
 
                 $defaultSound =
                     Split-Path `
@@ -1152,16 +1210,17 @@ function Get-ChannelAudioStatus {
             }
 
 
-            if($null -ne $cfg.routes) {
+            if($null -ne $cfg.routes){
 
                 foreach(
                     $p in
                     $cfg.routes.PSObject.Properties
-                ) {
+                ){
 
                     $routes +=
                         [pscustomobject]@{
-                            channel = [string]$p.Name
+                            channel =
+                                [string]$p.Name
 
                             sound =
                                 Split-Path `
@@ -1183,10 +1242,10 @@ function Get-ChannelAudioStatus {
 
 
     # --------------------------------------------------------
-    # LAST DETECTED CHANNEL
+    # LAST DETECTED
     # --------------------------------------------------------
 
-    if(Test-Path -LiteralPath $routerLog) {
+    if(Test-Path -LiteralPath $routerLog){
 
         try {
 
@@ -1204,12 +1263,12 @@ function Get-ChannelAudioStatus {
                 $i = $lines.Count - 1;
                 $i -ge 0;
                 $i--
-            ) {
+            ){
 
                 if(
                     $lines[$i] -match
                     'channel=#([^\s]+)'
-                ) {
+                ){
 
                     $lastDetected =
                         '#' + $matches[1]
@@ -1221,7 +1280,7 @@ function Get-ChannelAudioStatus {
                 if(
                     $lines[$i] -match
                     'channel=unknown'
-                ) {
+                ){
 
                     $lastDetected =
                         '[notification without channel]'
@@ -1237,6 +1296,7 @@ function Get-ChannelAudioStatus {
     [pscustomobject]@{
         routerRunning = $routerRunning
         enabled       = $enabled
+        volume        = $volume
         defaultSound  = $defaultSound
         routes        = @($routes)
         lastDetected  = $lastDetected
@@ -1767,6 +1827,85 @@ if(!$latest) {
 
                     Json-Response $client @{
                         ok = $false
+                        error = $_.Exception.Message
+                    } 500
+                }
+
+
+                continue
+            }
+
+            # SHINY-AUDIO-CONTROLS-API-V2
+            if(
+                $req.Method -eq 'POST' -and
+                $req.Path -eq '/api/channel/audio'
+            ){
+                try {
+
+                    $j =
+                        $req.Body |
+                        ConvertFrom-Json
+
+
+                    $cfg =
+                        Read-ChannelRoutesConfig
+
+
+                    if($null -ne $j.enabled){
+
+                        $cfg.enabled =
+                            [bool]$j.enabled
+                    }
+
+
+                    if($null -ne $j.volume){
+
+                        $newVolume =
+                            [double]$j.volume
+
+
+                        if($newVolume -lt 0){
+                            $newVolume = 0
+                        }
+
+
+                        if($newVolume -gt 1){
+                            $newVolume = 1
+                        }
+
+
+                        $cfg.volume =
+                            $newVolume
+                    }
+
+
+                    Write-ChannelRoutesConfig `
+                        $cfg
+
+
+                    Json-Response $client @{
+                        ok      = $true
+                        enabled = [bool]$cfg.enabled
+                        volume  = [double]$cfg.volume
+                    }
+
+
+                    Write-WebDiag (
+                        "Audio controls updated enabled={0} volume={1}" -f
+                        [bool]$cfg.enabled,
+                        [double]$cfg.volume
+                    ) $rid
+                }
+                catch {
+
+                    Write-WebException `
+                        $_ `
+                        $rid `
+                        'Audio controls update failed'
+
+
+                    Json-Response $client @{
+                        ok    = $false
                         error = $_.Exception.Message
                     } 500
                 }
