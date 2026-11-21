@@ -28,6 +28,27 @@
 .channelSummary{display:grid;grid-template-columns:180px 1fr;gap:12px;margin-top:20px}.channelSummary>div{background:#0b0f17;border:1px solid var(--line);border-radius:14px;padding:14px}.channelLabel{font-size:11px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);font-weight:700}.channelValue{font-weight:700;margin-top:7px}.channelRoutes{display:flex;flex-direction:column;gap:9px;margin-top:9px}.channelRoute{display:grid;grid-template-columns:minmax(220px,1fr) minmax(180px,.8fr);gap:14px;align-items:center;background:#0b0f17;border:1px solid var(--line);border-radius:13px;padding:12px 14px}.channelName{font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.channelSound{font:12px Consolas,monospace;color:var(--cyan);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.channelEmpty{color:var(--muted);font-size:13px;padding:13px 0}.channelLast{display:flex;justify-content:space-between;gap:16px;margin-top:18px;padding-top:15px;border-top:1px solid var(--line);font-size:13px;color:var(--muted)}@media(max-width:620px){.channelSummary{grid-template-columns:1fr}.channelRoute{grid-template-columns:1fr}.channelLast{flex-direction:column;gap:6px}}
 .channelDefaultRow{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:7px}.channelHeaderRow{display:flex;align-items:center;justify-content:space-between;margin-top:20px}.channelRoute{grid-template-columns:minmax(190px,1fr) minmax(160px,.8fr) auto}.channelActions{display:flex;gap:7px;justify-content:flex-end}.channelActions button{padding:7px 10px;font-size:12px}.channelAddBar{display:grid;grid-template-columns:minmax(180px,1fr) auto auto;gap:9px;margin-top:14px}.channelAddBar input{width:100%;border:1px solid var(--line);border-radius:12px;background:#0b0f17;color:var(--text);padding:11px 13px;font:14px Segoe UI,system-ui,sans-serif;outline:none}.channelAddBar input:focus{border-color:var(--cyan);box-shadow:0 0 0 2px #55d9ff18}@media(max-width:700px){.channelRoute{grid-template-columns:1fr}.channelActions{justify-content:flex-start}.channelAddBar{grid-template-columns:1fr}.channelDefaultRow{align-items:flex-start;flex-direction:column}}
 @media(max-width:760px){.grid{grid-template-columns:1fr 1fr}.fileRow{align-items:flex-start;flex-direction:column}audio{width:100%}}@media(max-width:460px){.grid{grid-template-columns:1fr}.wrap{width:min(100% - 20px,980px);padding-top:24px}.card{padding:18px}}
+
+.alertToggleRow{
+  margin-top:12px;
+  display:flex;
+  justify-content:flex-end;
+}
+.alertToggleLabel{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  color:#8e9bb0;
+  font-size:12px;
+  cursor:pointer;
+  user-select:none;
+}
+.alertToggleLabel input{
+  width:16px;
+  height:16px;
+  accent-color:#55d8ff;
+  cursor:pointer;
+}
 </style>
 </head>
 <body>
@@ -102,7 +123,13 @@
   </section>
 <section class="card">
     <h2>Activity</h2>
-    <div class="sub">Recent ShinySlack notification audio events. Each card represents a sound that actually fired, including independently routed alerts inside notification stacks.</div>
+    <div class="sub">Recent ShinySlack notification audio events.</div>
+    <div class="alertToggleRow">
+      <label class="alertToggleLabel">
+        <input id="alertAutoDismiss" type="checkbox">
+        Auto-dismiss floating alerts after 15 seconds
+      </label>
+    </div>
     <div id="activityFeed" class="activityFeed" style="margin-top:14px">
       <div class="activityEmpty">No Slack notifications yet.</div>
     </div>
@@ -386,33 +413,34 @@ const activityColors=[
   '#44d7c4'
 ];
 
-function activityColorFor(n,index,previousColor){
-  const key=[
-    n.time||'',
-    n.source||'',
-    n.sound||'',
-    n.message||''
-  ].join('|');
+function activityColorFor(n){
+  const key=
+    n.eventKey||
+    [
+      n.time||'',
+      n.source||'Slack',
+      n.sound||''
+    ].join('|');
 
   let hash=0;
 
   for(let i=0;i<key.length;i++){
-    hash=((hash<<5)-hash)+key.charCodeAt(i);
-    hash|=0;
+    hash=(
+      Math.imul(hash,31)+
+      key.charCodeAt(i)
+    )>>>0;
   }
 
-  let colorIndex=Math.abs(hash)%activityColors.length;
-  let color=activityColors[colorIndex];
-
-  // Never let neighboring Activity cards share the same color.
-  if(color===previousColor){
-    colorIndex=(colorIndex+1+index)%activityColors.length;
-    color=activityColors[colorIndex];
-  }
-
-  return color;
+  return activityColors[
+    hash%activityColors.length
+  ];
 }
+
 function renderActivity(items){
+  // SHINY-ACTIVITY-LATEST-FIRST-V1
+  // Backend history is chronological; dashboard wants newest first.
+  items=[...(items||[])].reverse();
+
   const box=$('activityFeed');
 
   if(!box)return;
@@ -427,20 +455,15 @@ function renderActivity(items){
     return;
   }
 
-  let previousActivityColor=null;
+  // Backend returns newest-first.
+  // Present the latest 30 chronologically.
+  const ordered=[...items].reverse();
 
-  items.forEach((n,index)=>{
+  ordered.forEach(n=>{
     const card=document.createElement('div');
     card.className='activityItem';
 
-    const accent=
-      activityColorFor(
-        n,
-        index,
-        previousActivityColor
-      );
-
-    previousActivityColor=accent;
+    const accent=activityColorFor(n);
 
     card.style.setProperty(
       '--activityAccent',
@@ -473,14 +496,6 @@ function renderActivity(items){
     top.appendChild(time);
     card.appendChild(top);
 
-    const body=document.createElement('div');
-    body.className='activityMessage';
-    body.textContent=
-      n.message||
-      'Notification received — Slack did not expose a message preview.';
-
-    card.appendChild(body);
-
     if(n.sound){
       const meta=document.createElement('div');
       meta.className='activityMeta';
@@ -490,10 +505,38 @@ function renderActivity(items){
 
     box.appendChild(card);
   });
-}
+
+  // Chronological feed opens at the newest event.
+  box.scrollTop=box.scrollHeight;
+
+  // SHINY-ACTIVITY-PIN-TOP-V1
+  // Newest item is first; never preserve an old bottom scroll position.
+  requestAnimationFrame(()=>{
+    box.scrollTop=0;
+  });}
+
 async function status(){
+  if(window.__shinyStatusInFlight){
+    return;
+  }
+
+  window.__shinyStatusInFlight=true;
+
   try{
     const s=await api('/api/status');
+    // shinyslack-status-error-clear
+    const staleResult=$('result');
+
+    if(
+      staleResult &&
+      staleResult.classList.contains('err') &&
+      /Local ShinySlack API timed out|NetworkError|Failed to fetch|Load failed/i.test(
+        staleResult.textContent||''
+      )
+    ){
+      staleResult.className='result';
+      staleResult.textContent='';
+    }
     if(s.build && s.build!=='V16'){show(false,'Backend/UI build mismatch: '+s.build+' is serving this page. Restart ShinySlack V16.');}
     $('slack').textContent=s.slackRunning?'Running':'Closed'; cls($('slack'),s.slackRunning?'good':'warn');
     $('cache').textContent=s.cachePresent?'Present':'Missing'; cls($('cache'),s.cachePresent?'good':'bad');
@@ -502,10 +545,21 @@ async function status(){
     cls($('health'),(s.health==='Custom'||s.health==='ConfiguredDeferred')?'good':((s.health==='Stock'||s.health==='Deferred')?'warn':'bad'));
     $('watcher').textContent=s.installed?(s.watcherRunning?'Watching':'Not watching'):'Not installed'; cls($('watcher'),s.watcherRunning?'good':'warn'); $('watcher').title=s.watcherDetail||'';
     renderActivity(s.notifications||[]);
+
+    if(
+      $('alertAutoDismiss') &&
+      s.alertSettings
+    ){
+      $('alertAutoDismiss').checked=
+        !!s.alertSettings.autoDismiss;
+    }
     renderChannelAudio(s);
-  }catch(e){show(false,e.message)}
-}
-function show(ok,msg){const r=$('result');r.className='result show '+(ok?'ok':'err');r.textContent=msg}
+    }catch(e){
+    show(false,e.message);
+  }finally{
+    window.__shinyStatusInFlight=false;
+  }
+}function show(ok,msg){const r=$('result');r.className='result show '+(ok?'ok':'err');r.textContent=msg}
 function pick(f){if(!f)return;if(!/\.mp3$/i.test(f.name)){show(false,'Please choose an MP3 file.');return}if(f.size>5*1024*1024){show(false,'MP3 is larger than 5 MB. Trim it first.');return}selected=f;$('fileName').textContent=f.name;$('fileSize').textContent=(f.size/1024).toFixed(1)+' KB';$('fileRow').classList.add('show');$('apply').disabled=false;if(previewUrl)URL.revokeObjectURL(previewUrl);previewUrl=URL.createObjectURL(f);$('preview').src=previewUrl}
 async function waitOperation(id,label){
   const started=Date.now();
@@ -524,6 +578,37 @@ for(const ev of ['dragenter','dragover'])$('drop').addEventListener(ev,e=>{e.pre
 $('apply').onclick=async()=>{if(!selected)return;$('apply').disabled=true;show(true,'Uploading MP3...');try{const b64=await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result.split(',')[1]);fr.onerror=rej;fr.readAsDataURL(selected)});const j=await api('/api/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fileName:selected.name,dataBase64:b64})});await waitOperation(j.operationId,'Applying sound')}catch(e){show(false,e.message)}finally{$('apply').disabled=false}};
 $('repair').onclick=async()=>{try{const j=await api('/api/repair',{method:'POST'});await waitOperation(j.operationId,'Repairing ShinySlack')}catch(e){show(false,e.message)}};
 $('refresh').onclick=status;
+
+const alertAutoDismiss=$('alertAutoDismiss');
+
+if(alertAutoDismiss){
+
+  alertAutoDismiss.onchange=async()=>{
+
+    const desired=
+      alertAutoDismiss.checked;
+
+    try{
+
+      await api('/api/alerts/settings',{
+        method:'POST',
+        headers:{
+          'Content-Type':'application/json'
+        },
+        body:JSON.stringify({
+          autoDismiss:desired
+        })
+      });
+
+    }catch(e){
+
+      alertAutoDismiss.checked=
+        !desired;
+
+      show(false,e.message);
+    }
+  };
+}
 let updateReleaseUrl='';
 
 $('checkUpdate').onclick=async()=>{
@@ -573,7 +658,7 @@ $('checkUpdate').onclick=async()=>{
 
 $('uninstall').onclick=async()=>{if(!confirm('Remove the ShinySlack watcher and local app files? Slack itself will not be uninstalled.'))return;try{const j=await api('/api/uninstall',{method:'POST'});await waitOperation(j.operationId,'Uninstalling ShinySlack')}catch(e){show(false,e.message)}};
 $('shutdown').onclick=async()=>{try{await api('/api/shutdown',{method:'POST'});document.body.innerHTML='<div style="font-family:Segoe UI;background:#090b11;color:white;height:100vh;display:grid;place-items:center"><div><h1>ShinySlack dashboard closed</h1><p>Background notification routing is still running. You can close this tab.</p></div></div>'}catch(e){show(false,e.message)}};
-status();setInterval(status,5000);
+status();setInterval(status,10000);
 </script>
 </body>
 </html>

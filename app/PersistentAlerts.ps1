@@ -1,0 +1,1134 @@
+$ErrorActionPreference = 'Stop'
+
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+
+$root = Join-Path $env:LOCALAPPDATA 'ShinySlack'
+$log  = Join-Path $root 'channel-router.log'
+$settingsFile = Join-Path $root 'persistent-alerts.settings.json'
+
+$created = $false
+$mutex = New-Object System.Threading.Mutex(
+    $true,
+    'Local\ShinySlackPersistentAlertsV6',
+    [ref]$created
+)
+
+if(!$created){ exit }
+
+$script:Alerts = New-Object System.Collections.ArrayList
+$script:NextId = 1
+$script:Tucked = $false
+$script:TuckStarted = $null
+$script:Carry = ''
+$script:Offset = 0L
+$script:AutoDismiss = $true
+$script:AutoDismissSeconds = 15
+$script:LastSettingsRead = [datetime]::MinValue
+
+$script:Palette = @(
+    '#55d8ff',
+    '#ff5cc8',
+    '#63e6a3',
+    '#ffc857',
+    '#a78bfa',
+    '#5ea1ff',
+    '#ff7b72',
+    '#b5e853',
+    '#ff8fab',
+    '#44d7c4'
+)
+
+if(Test-Path $log) {
+    try {
+        $script:Offset = (Get-Item $log).Length
+    } catch {}
+}
+
+if(!(Test-Path $settingsFile)) {
+    [pscustomobject]@{
+        autoDismiss = $true
+        autoDismissSeconds = 15
+    } |
+    ConvertTo-Json -Compress |
+    Set-Content $settingsFile -Encoding UTF8
+}
+
+function Read-Settings {
+    if(((Get-Date) - $script:LastSettingsRead).TotalMilliseconds -lt 1500){
+        return
+    }
+
+    $script:LastSettingsRead = Get-Date
+
+    try {
+        $s = Get-Content $settingsFile -Raw -Encoding UTF8 | ConvertFrom-Json
+
+        if($null -ne $s.autoDismiss){
+            $script:AutoDismiss = [bool]$s.autoDismiss
+        }
+
+        if($s.autoDismissSeconds){
+            $script:AutoDismissSeconds =
+                [Math]::Max(1,[int]$s.autoDismissSeconds)
+        }
+    } catch {}
+}
+
+function Get-Accent {
+    param([string]$Key)
+
+    [uint64]$hash = 0
+
+    foreach($ch in $Key.ToCharArray()){
+        $hash = (($hash * 31) + [int][char]$ch) % 4294967296
+    }
+
+    $hex = $script:Palette[
+        [int]($hash % $script:Palette.Count)
+    ]
+
+    [Drawing.ColorTranslator]::FromHtml($hex)
+}
+
+function New-Button {
+    param(
+        [string]$Text,
+        [int]$Width = 28
+    )
+
+    $b = New-Object System.Windows.Forms.Button
+    $b.Text = $Text
+    $b.Width = $Width
+    $b.Height = 25
+    $b.FlatStyle = 'Flat'
+    $b.FlatAppearance.BorderSize = 0
+    $b.BackColor = [Drawing.Color]::FromArgb(36,39,47)
+    $b.ForeColor = [Drawing.Color]::Gainsboro
+    $b.Font = New-Object Drawing.Font('Segoe UI',10,[Drawing.FontStyle]::Bold)
+    $b.Cursor = [System.Windows.Forms.Cursors]::Hand
+    $b
+}
+
+$form = New-Object System.Windows.Forms.Form
+$form.FormBorderStyle = 'None'
+$form.ShowInTaskbar = $false
+$form.TopMost = $true
+$form.StartPosition = 'Manual'
+$form.BackColor = [Drawing.Color]::FromArgb(20,22,27)
+$form.ForeColor = [Drawing.Color]::White
+$form.Width = 390
+$form.Height = 100
+$form.Opacity = .97
+$form.AutoScroll = $true
+
+function Position-Form {
+    $wa = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+
+    $form.Left =
+        $wa.Left + 12
+
+    $form.Top =
+        $wa.Bottom -
+        $form.Height -
+        12
+}
+
+function Render-Tucked {
+    $form.SuspendLayout()
+
+    try {
+        $form.Controls.Clear()
+        $form.AutoScroll = $false
+
+        $form.Width = 230
+        $form.Height = 34
+
+        $bar = New-Object System.Windows.Forms.Panel
+        $bar.Dock = 'Fill'
+        $bar.BackColor = [Drawing.Color]::FromArgb(24,27,33)
+
+        $count = $script:Alerts.Count
+
+        if($count -eq 1){
+            $countText = '1 alert'
+        }
+        else {
+            $countText = "$count alerts"
+        }
+
+        $label = New-Object System.Windows.Forms.Label
+        $label.Left = 12
+        $label.Top = 8
+        $label.Width = 172
+        $label.Height = 18
+        $label.Text = "ShinySlack   $countText"
+        $label.ForeColor = [Drawing.Color]::Gainsboro
+        $label.Font = New-Object Drawing.Font(
+            'Segoe UI',
+            9,
+            [Drawing.FontStyle]::Bold
+        )
+
+        $plus = New-Button '+' 28
+        $plus.Left = 194
+        $plus.Top = 5
+        $plus.Height = 24
+
+        $plus.Add_Click({
+            $now = Get-Date
+
+            foreach($a in @($script:Alerts)){
+                if(!$a.ExpireAt){ continue }
+
+                $pauseFrom = $script:TuckStarted
+
+                if(
+                    $a.AddedAt -and
+                    $a.AddedAt -gt $pauseFrom
+                ){
+                    $pauseFrom = $a.AddedAt
+                }
+
+                if($pauseFrom){
+                    $a.ExpireAt =
+                        $a.ExpireAt.Add(
+                            $now - $pauseFrom
+                        )
+                }
+            }
+
+            $script:Tucked = $false
+            $script:TuckStarted = $null
+
+            Render-Expanded
+        })
+
+        $bar.Controls.Add($label)
+        $bar.Controls.Add($plus)
+        $form.Controls.Add($bar)
+
+        Position-Form
+
+        if(!$form.Visible){
+            $form.Show()
+        }
+    }
+    finally {
+        $form.ResumeLayout($true)
+    }
+}
+
+# SHINY-SLACK-DESKTOP-JUMP-V1
+
+function Convert-ToSendKeysLiteral {
+    param([string]$Text)
+
+    $sb =
+        New-Object Text.StringBuilder
+
+    foreach($ch in $Text.ToCharArray()){
+
+        switch($ch){
+
+            '+' {
+                [void]$sb.Append('{+}')
+            }
+
+            '^' {
+                [void]$sb.Append('{^}')
+            }
+
+            '%' {
+                [void]$sb.Append('{%}')
+            }
+
+            '~' {
+                [void]$sb.Append('{~}')
+            }
+
+            '(' {
+                [void]$sb.Append('{(}')
+            }
+
+            ')' {
+                [void]$sb.Append('{)}')
+            }
+
+            '{' {
+                [void]$sb.Append('{{}')
+            }
+
+            '}' {
+                [void]$sb.Append('{}}')
+            }
+
+            default {
+                [void]$sb.Append($ch)
+            }
+        }
+    }
+
+    return $sb.ToString()
+}
+
+
+function Open-SlackConversation {
+    param([string]$Channel)
+
+    # Channel is intentionally ignored now.
+    # Clicking any alert simply restores/focuses Slack.
+
+    $navLog =
+        Join-Path `
+            $env:LOCALAPPDATA `
+            'ShinySlack\persistent-alerts.nav.log'
+
+
+    function NavLog {
+        param([string]$Message)
+
+        try {
+            Add-Content `
+                -LiteralPath $navLog `
+                -Value (
+                    "{0} {1}" -f
+                    (Get-Date -Format 'HH:mm:ss.fff'),
+                    $Message
+                ) `
+                -Encoding UTF8
+        }
+        catch {}
+    }
+
+
+    try {
+        if(-not ('ShinySlackWindowFocusV2' -as [type])){
+
+            Add-Type @"
+using System;
+using System.Text;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Collections.Generic;
+
+public static class ShinySlackWindowFocusV2
+{
+    public class WindowInfo
+    {
+        public IntPtr Handle;
+        public int ProcessId;
+        public string Title;
+        public int Score;
+    }
+
+    public delegate bool EnumWindowsProc(
+        IntPtr hWnd,
+        IntPtr lParam
+    );
+
+    [DllImport("user32.dll")]
+    public static extern bool EnumWindows(
+        EnumWindowsProc lpEnumFunc,
+        IntPtr lParam
+    );
+
+    [DllImport("user32.dll")]
+    public static extern bool IsWindowVisible(
+        IntPtr hWnd
+    );
+
+    [DllImport("user32.dll")]
+    public static extern int GetWindowTextLength(
+        IntPtr hWnd
+    );
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern int GetWindowText(
+        IntPtr hWnd,
+        StringBuilder lpString,
+        int nMaxCount
+    );
+
+    [DllImport("user32.dll")]
+    public static extern uint GetWindowThreadProcessId(
+        IntPtr hWnd,
+        out uint lpdwProcessId
+    );
+
+    [DllImport("user32.dll")]
+    public static extern bool IsIconic(
+        IntPtr hWnd
+    );
+
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindowAsync(
+        IntPtr hWnd,
+        int nCmdShow
+    );
+
+    [DllImport("user32.dll")]
+    public static extern bool SetForegroundWindow(
+        IntPtr hWnd
+    );
+
+    [DllImport("user32.dll")]
+    public static extern bool BringWindowToTop(
+        IntPtr hWnd
+    );
+
+    public static WindowInfo FindSlackWindow()
+    {
+        var matches = new List<WindowInfo>();
+
+        EnumWindows(delegate(IntPtr hWnd, IntPtr lParam)
+        {
+            if (!IsWindowVisible(hWnd))
+                return true;
+
+            uint pid;
+            GetWindowThreadProcessId(hWnd, out pid);
+
+            if (pid == 0)
+                return true;
+
+            Process process;
+
+            try
+            {
+                process = Process.GetProcessById((int)pid);
+            }
+            catch
+            {
+                return true;
+            }
+
+            if (!string.Equals(
+                    process.ProcessName,
+                    "slack",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            int len = GetWindowTextLength(hWnd);
+
+            if (len <= 0)
+                return true;
+
+            var sb = new StringBuilder(len + 1);
+            GetWindowText(hWnd, sb, sb.Capacity);
+
+            string title = sb.ToString();
+
+            if (string.IsNullOrWhiteSpace(title))
+                return true;
+
+            // Never select Slack's notification/helper window.
+            if (title.IndexOf(
+                    "app://resources/notifications.html",
+                    StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return true;
+            }
+
+            int score = 10;
+
+            if (title.IndexOf(
+                    "Slack",
+                    StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                score += 100;
+            }
+
+            if (title.IndexOf(
+                    "Channel",
+                    StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                score += 40;
+            }
+
+            if (title.IndexOf(
+                    "Direct message",
+                    StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                score += 40;
+            }
+
+            if (title.IndexOf(
+                    "Amazon",
+                    StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                score += 25;
+            }
+
+            matches.Add(
+                new WindowInfo {
+                    Handle = hWnd,
+                    ProcessId = (int)pid,
+                    Title = title,
+                    Score = score
+                }
+            );
+
+            return true;
+
+        }, IntPtr.Zero);
+
+
+        WindowInfo best = null;
+
+        foreach(var item in matches)
+        {
+            if (best == null || item.Score > best.Score)
+                best = item;
+        }
+
+        return best;
+    }
+
+
+    public static bool RestoreSlack(
+        WindowInfo window
+    )
+    {
+        if (window == null)
+            return false;
+
+        // SW_RESTORE = 9
+        if (IsIconic(window.Handle))
+            ShowWindowAsync(window.Handle, 9);
+        else
+            ShowWindowAsync(window.Handle, 5);
+
+        BringWindowToTop(window.Handle);
+
+        return SetForegroundWindow(
+            window.Handle
+        );
+    }
+}
+"@
+        }
+
+
+        $window =
+            [ShinySlackWindowFocusV2]::FindSlackWindow()
+
+
+        if(!$window){
+            NavLog 'ABORT no-slack-workspace-window'
+            return
+        }
+
+
+        NavLog (
+            "FOUND pid={0} title='{1}' score={2}" -f
+            $window.ProcessId,
+            $window.Title,
+            $window.Score
+        )
+
+
+        $result =
+            [ShinySlackWindowFocusV2]::RestoreSlack(
+                $window
+            )
+
+
+        NavLog (
+            "RESTORE result={0}" -f
+            $result
+        )
+    }
+    catch {
+        NavLog (
+            'ERROR ' +
+            $_.Exception.Message
+        )
+    }
+}
+
+function Set-RoundedRegion {
+    param(
+        $Control,
+        [int]$Radius = 14
+    )
+
+    if(
+        !$Control -or
+        $Control.Width -lt 2 -or
+        $Control.Height -lt 2
+    ){
+        return
+    }
+
+    $d = $Radius * 2
+
+    $path =
+        New-Object System.Drawing.Drawing2D.GraphicsPath
+
+    $path.StartFigure()
+    $path.AddArc(0,0,$d,$d,180,90)
+    $path.AddArc($Control.Width-$d,0,$d,$d,270,90)
+
+    $path.AddArc(
+        $Control.Width-$d,
+        $Control.Height-$d,
+        $d,
+        $d,
+        0,
+        90
+    )
+
+    $path.AddArc(
+        0,
+        $Control.Height-$d,
+        $d,
+        $d,
+        90,
+        90
+    )
+
+    $path.CloseFigure()
+
+    $Control.Region =
+        New-Object Drawing.Region($path)
+}
+
+function Render-Expanded {
+    $form.SuspendLayout()
+
+    try {
+        $form.Controls.Clear()
+        $form.AutoScroll = $true
+        $form.Width = 410
+
+        $items = @(
+            $script:Alerts |
+            Sort-Object AddedAt -Descending
+        )
+
+        if($items.Count -eq 0){
+            $form.Hide()
+            return
+        }
+
+
+        # ------------------------------------------------------
+        # GLOBAL HEADER
+        # ------------------------------------------------------
+
+        $header =
+            New-Object System.Windows.Forms.Panel
+
+        $header.Left = 0
+        $header.Top = 0
+        $header.Width = 410
+        $header.Height = 32
+
+        $header.BackColor =
+            [Drawing.Color]::FromArgb(
+                14,
+                19,
+                27
+            )
+
+        Set-RoundedRegion $header 10
+
+
+        $title =
+            New-Object System.Windows.Forms.Label
+
+        $title.Left = 13
+        $title.Top = 7
+        $title.Width = 98
+        $title.Height = 18
+        $title.Text = 'ShinySlack'
+
+        $title.ForeColor =
+            [Drawing.Color]::FromArgb(
+                226,
+                232,
+                240
+            )
+
+        $title.Font =
+            New-Object Drawing.Font(
+                'Segoe UI',
+                9,
+                [Drawing.FontStyle]::Bold
+            )
+
+
+        $countText =
+            if($items.Count -eq 1){
+                '1 alert'
+            }
+            else {
+                "$($items.Count) alerts"
+            }
+
+
+        $count =
+            New-Object System.Windows.Forms.Label
+
+        $count.Left = 108
+        $count.Top = 8
+        $count.Width = 90
+        $count.Height = 17
+        $count.Text = $countText
+
+        $count.ForeColor =
+            [Drawing.Color]::FromArgb(
+                115,
+                131,
+                151
+            )
+
+        $count.Font =
+            New-Object Drawing.Font(
+                'Segoe UI',
+                8
+            )
+
+
+        $minus =
+            New-Button '-' 28
+
+        $minus.Left = 369
+        $minus.Top = 4
+        $minus.Height = 24
+
+        $minus.BackColor =
+            [Drawing.Color]::FromArgb(
+                24,
+                31,
+                42
+            )
+
+        Set-RoundedRegion $minus 8
+
+
+        $minus.Add_Click({
+            $script:Tucked = $true
+            $script:TuckStarted = Get-Date
+            Render-Tucked
+        })
+
+
+        $header.Controls.Add($title)
+        $header.Controls.Add($count)
+        $header.Controls.Add($minus)
+
+        $form.Controls.Add($header)
+
+
+        # ------------------------------------------------------
+        # ALERT CARDS
+        # ------------------------------------------------------
+
+        $top = 38
+
+
+        foreach($a in $items){
+
+            $accent =
+                Get-Accent $a.EventKey
+
+
+            # Common click handler for every non-X part of card.
+            $openSlack = {
+                param($sender,$eventArgs)
+
+                $target =
+                    [string]$sender.Tag
+
+                if($target){
+                    Open-SlackConversation `
+                        -Channel $target
+                }
+            }
+
+
+            $shell =
+                New-Object System.Windows.Forms.Panel
+
+            $shell.Left = 0
+            $shell.Top = $top
+            $shell.Width = 410
+            $shell.Height = 66
+
+            $shell.BackColor =
+                [Drawing.Color]::FromArgb(
+                    31,
+                    40,
+                    53
+                )
+
+            $shell.Tag = $a.Channel
+            $shell.Cursor = [Windows.Forms.Cursors]::Hand
+            $shell.Add_Click($openSlack)
+
+            Set-RoundedRegion $shell 14
+
+
+            $card =
+                New-Object System.Windows.Forms.Panel
+
+            $card.Left = 1
+            $card.Top = 1
+            $card.Width = 408
+            $card.Height = 64
+
+            $card.BackColor =
+                [Drawing.Color]::FromArgb(
+                    8,
+                    13,
+                    20
+                )
+
+            $card.Tag = $a.Channel
+            $card.Cursor = [Windows.Forms.Cursors]::Hand
+            $card.Add_Click($openSlack)
+
+            Set-RoundedRegion $card 13
+
+
+            $rail =
+                New-Object System.Windows.Forms.Panel
+
+            $rail.Left = 0
+            $rail.Top = 0
+            $rail.Width = 4
+            $rail.Height = 64
+            $rail.BackColor = $accent
+
+            $rail.Tag = $a.Channel
+            $rail.Cursor = [Windows.Forms.Cursors]::Hand
+            $rail.Add_Click($openSlack)
+
+
+            $channel =
+                New-Object System.Windows.Forms.Label
+
+            $channel.Left = 15
+            $channel.Top = 9
+            $channel.Width = 245
+            $channel.Height = 22
+
+            $channel.Text = $a.Channel
+            $channel.ForeColor = $accent
+
+            $channel.Font =
+                New-Object Drawing.Font(
+                    'Segoe UI',
+                    10,
+                    [Drawing.FontStyle]::Bold
+                )
+
+            $channel.Tag = $a.Channel
+            $channel.Cursor = [Windows.Forms.Cursors]::Hand
+            $channel.Add_Click($openSlack)
+
+
+            $time =
+                New-Object System.Windows.Forms.Label
+
+            $time.Left = 267
+            $time.Top = 10
+            $time.Width = 88
+            $time.Height = 20
+
+            $time.TextAlign = 'MiddleRight'
+            $time.Text = $a.Time.ToString('h:mm tt')
+            $time.ForeColor = $accent
+
+            $time.Font =
+                New-Object Drawing.Font(
+                    'Segoe UI',
+                    8,
+                    [Drawing.FontStyle]::Bold
+                )
+
+            $time.Tag = $a.Channel
+            $time.Cursor = [Windows.Forms.Cursors]::Hand
+            $time.Add_Click($openSlack)
+
+
+            # X remains dismiss-only.
+            $x =
+                New-Button 'X' 28
+
+            $x.Left = 369
+            $x.Top = 5
+            $x.Height = 24
+            $x.Tag = $a.Id
+
+            $x.BackColor =
+                [Drawing.Color]::FromArgb(
+                    21,
+                    28,
+                    38
+                )
+
+            $x.ForeColor =
+                [Drawing.Color]::FromArgb(
+                    184,
+                    196,
+                    211
+                )
+
+            Set-RoundedRegion $x 8
+
+
+            $x.Add_Click({
+                param($sender,$eventArgs)
+
+                $id =
+                    [int]$sender.Tag
+
+                $target =
+                    @(
+                        $script:Alerts |
+                        Where-Object {
+                            $_.Id -eq $id
+                        }
+                    ) |
+                    Select-Object -First 1
+
+                if($target){
+                    [void]$script:Alerts.Remove(
+                        $target
+                    )
+                }
+
+                Render-Expanded
+            })
+
+
+            $sound =
+                New-Object System.Windows.Forms.Label
+
+            $sound.Left = 15
+            $sound.Top = 38
+            $sound.Width = 350
+            $sound.Height = 18
+
+            $sound.Text =
+                "Sound: $($a.Sound)"
+
+            $sound.ForeColor =
+                [Drawing.Color]::FromArgb(
+                    106,
+                    123,
+                    146
+                )
+
+            $sound.Font =
+                New-Object Drawing.Font(
+                    'Segoe UI',
+                    7.75
+                )
+
+            $sound.Tag = $a.Channel
+            $sound.Cursor = [Windows.Forms.Cursors]::Hand
+            $sound.Add_Click($openSlack)
+
+
+            $card.Controls.Add($rail)
+            $card.Controls.Add($channel)
+            $card.Controls.Add($time)
+            $card.Controls.Add($x)
+            $card.Controls.Add($sound)
+
+            $shell.Controls.Add($card)
+            $form.Controls.Add($shell)
+
+            $top += 72
+        }
+
+
+        $form.Height =
+            [Math]::Min(
+                $top + 2,
+                610
+            )
+
+        Position-Form
+
+        if(!$form.Visible){
+            $form.Show()
+        }
+    }
+    finally {
+        $form.ResumeLayout($true)
+    }
+}
+
+function Render {
+    if($script:Tucked){
+        Render-Tucked
+    }
+    else {
+        Render-Expanded
+    }
+}
+
+function Add-Alert {
+    param([string]$Line)
+
+    if(
+        $Line -notmatch
+        '^(?<stamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) (?<kind>ROUTED|DEFAULT|STACK_EXTRA|STACK_EXTRA_DEFAULT) channel=(?<channel>\S+) sound=(?<sound>.+?) backend=(?<backend>\S+)$'
+    ){
+        return
+    }
+
+    try {
+        $stamp = [datetime]::ParseExact(
+            $Matches.stamp,
+            'yyyy-MM-dd HH:mm:ss.fff',
+            [Globalization.CultureInfo]::InvariantCulture
+        )
+    }
+    catch {
+        $stamp = Get-Date
+    }
+
+    $now = Get-Date
+
+    $obj = [pscustomobject]@{
+        Id       = $script:NextId
+        Time     = $stamp
+        AddedAt  = $now
+        Channel  = [string]$Matches.channel
+        Sound    = [string]$Matches.sound
+        EventKey = $Line
+        ExpireAt = $now.AddSeconds($script:AutoDismissSeconds)
+    }
+
+    $script:NextId++
+
+    [void]$script:Alerts.Add($obj)
+
+    while($script:Alerts.Count -gt 30){
+        $old = $script:Alerts |
+            Sort-Object AddedAt |
+            Select-Object -First 1
+
+        [void]$script:Alerts.Remove($old)
+    }
+
+    Render
+}
+
+function Read-NewLines {
+    if(!(Test-Path $log)){ return }
+
+    try {
+        $stream = New-Object IO.FileStream(
+            $log,
+            [IO.FileMode]::Open,
+            [IO.FileAccess]::Read,
+            [IO.FileShare]::ReadWrite
+        )
+
+        try {
+            if($stream.Length -lt $script:Offset){
+                $script:Offset = $stream.Length
+                $script:Carry = ''
+                return
+            }
+
+            if($stream.Length -eq $script:Offset){
+                return
+            }
+
+            [void]$stream.Seek(
+                $script:Offset,
+                [IO.SeekOrigin]::Begin
+            )
+
+            $reader = New-Object IO.StreamReader(
+                $stream,
+                [Text.Encoding]::UTF8
+            )
+
+            try {
+                $text = $reader.ReadToEnd()
+                $script:Offset = $stream.Position
+            }
+            finally {
+                $reader.Dispose()
+            }
+        }
+        finally {
+            $stream.Dispose()
+        }
+
+        if(!$text){ return }
+
+        $combined = $script:Carry + $text
+        $parts = $combined -split "`r?`n"
+
+        if($combined.EndsWith("`n")){
+            $script:Carry = ''
+            $complete = $parts
+        }
+        else {
+            $script:Carry = $parts[-1]
+
+            if($parts.Count -gt 1){
+                $complete = $parts[0..($parts.Count - 2)]
+            }
+            else {
+                $complete = @()
+            }
+        }
+
+        foreach($line in @($complete)){
+            if(![string]::IsNullOrWhiteSpace($line)){
+                Add-Alert $line.Trim()
+            }
+        }
+    }
+    catch {
+        # Overlay failure must never affect audio/router.
+    }
+}
+
+$timer = New-Object System.Windows.Forms.Timer
+$timer.Interval = 250
+
+$timer.Add_Tick({
+    Read-Settings
+    Read-NewLines
+
+    # Tucked = countdown frozen.
+    if($script:Tucked){ return }
+    if(!$script:AutoDismiss){ return }
+
+    $now = Get-Date
+
+    $expired = @(
+        $script:Alerts |
+        Where-Object {
+            $_.ExpireAt -and
+            $_.ExpireAt -le $now
+        }
+    )
+
+    if($expired.Count){
+        foreach($a in $expired){
+            [void]$script:Alerts.Remove($a)
+        }
+
+        Render-Expanded
+    }
+})
+
+$timer.Start()
+
+# Message loop stays alive even while no alert is visible.
+[System.Windows.Forms.Application]::Run()
