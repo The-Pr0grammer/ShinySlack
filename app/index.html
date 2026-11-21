@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#090b11">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+CiAgPGRlZnM+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImciIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjNTVkOWZmIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iLjUyIiBzdG9wLWNvbG9yPSIjYTA3MWU4Ii8+CiAgICAgIDxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iI2ZmNWJjOCIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICA8L2RlZnM+CiAgPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTgiIGZpbGw9InVybCgjZykiLz4KICA8dGV4dCB4PSIzMiIgeT0iNDMiCiAgICAgICAgdGV4dC1hbmNob3I9Im1pZGRsZSIKICAgICAgICBmb250LWZhbWlseT0iU2Vnb2UgVUksQXJpYWwsc2Fucy1zZXJpZiIKICAgICAgICBmb250LXNpemU9IjM3IgogICAgICAgIGZvbnQtd2VpZ2h0PSI3MDAiCiAgICAgICAgZmlsbD0id2hpdGUiPlM8L3RleHQ+Cjwvc3ZnPg==">
 <title>ShinySlack</title>
 <style>
 :root{color-scheme:dark;--bg:#090b11;--card:#121622;--card2:#0e121c;--text:#f5f7fb;--muted:#9aa6b7;--line:#252c3a;--cyan:#55d9ff;--pink:#ff5bc8;--good:#54e39a;--warn:#ffd166;--bad:#ff6b7a}
@@ -55,7 +57,7 @@
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
       <div>
         <h2 style="margin-bottom:4px">Channel Sounds</h2>
-        <div class="sub">ShinySlack audio routing. Changes apply live to the running router. For single-playback routing, use the bundled silent-slack.mp3 as the Slack base sound above.</div>
+        <div class="sub">Give every Slack channel its own sound, with a default for everything else. Changes apply instantly.</div>
       </div>
       <span style="font:11px Consolas,monospace;color:#54e39a;border:1px solid #28543d;border-radius:999px;padding:5px 9px">LIVE CONFIG</span>
     </div>
@@ -105,13 +107,13 @@
       <div class="activityEmpty">No Slack notifications yet.</div>
     </div>
     <div class="actions">
-      <button id="shutdown">Close ShinySlack Website</button>
+      <button id="shutdown">Close Dashboard</button>
       <button id="uninstall">Uninstall ShinySlack</button>
       <button id="checkUpdate">Check for Updates</button>
     </div>
     <div id="updateStatus" class="sub" style="margin-top:10px"></div>
   </section>
-  <div class="footer">Runs only on 127.0.0.1. The selected audio stays on this PC.</div>
+  <div class="footer">Dashboard is local-only. Your selected audio stays on this PC. Router + watcher keep running when this page is closed.</div>
 </div>
 <script>
 const TOKEN='__TOKEN__';
@@ -570,7 +572,7 @@ $('checkUpdate').onclick=async()=>{
 };
 
 $('uninstall').onclick=async()=>{if(!confirm('Remove the ShinySlack watcher and local app files? Slack itself will not be uninstalled.'))return;try{const j=await api('/api/uninstall',{method:'POST'});await waitOperation(j.operationId,'Uninstalling ShinySlack')}catch(e){show(false,e.message)}};
-$('shutdown').onclick=async()=>{try{await api('/api/shutdown',{method:'POST'});document.body.innerHTML='<div style="font-family:Segoe UI;background:#090b11;color:white;height:100vh;display:grid;place-items:center"><div><h1>SHINY ShinySlack closed</h1><p>You can close this tab.</p></div></div>'}catch(e){show(false,e.message)}};
+$('shutdown').onclick=async()=>{try{await api('/api/shutdown',{method:'POST'});document.body.innerHTML='<div style="font-family:Segoe UI;background:#090b11;color:white;height:100vh;display:grid;place-items:center"><div><h1>ShinySlack dashboard closed</h1><p>Background notification routing is still running. You can close this tab.</p></div></div>'}catch(e){show(false,e.message)}};
 status();setInterval(status,5000);
 </script>
 </body>

@@ -42,7 +42,7 @@ function Sync-InstalledShinySlackAgent {
 
         $configPath=Join-Path $script:Root 'config.json'
         $runtime=@('ShinySlack.Common.ps1','Repair-ShinySlack.ps1','Watch-ShinySlack.ps1','Set-ShinySlackSound.ps1','Uninstall-ShinySlack.ps1','ShinySlack-Operation.ps1','ChannelRouter.ps1','Start-ChannelRouter.ps1','Set-ChannelSound.ps1','Set-DefaultSound.ps1','silent-slack.mp3')
-        $web=@('ShinySlack-Web.ps1','index.html','Start-ShinySlack.cmd','Start-ShinySlack.ps1','Install-ShinySlack.ps1','version.txt')
+        $web=@('ShinySlack-Web.ps1','index.html','Start-ShinySlack.cmd','Start-ShinySlack.ps1','Start-ShinySlack-Background.ps1','Install-ShinySlack.ps1','version.txt')
 
         # Validate every PowerShell file before copying anything into the installed app.
         $parseFailures=@()
@@ -397,7 +397,7 @@ function Get-StatusObject {
 }
 function Persist-WebFiles {
     if(!(Test-Path $script:Root)){New-Item -ItemType Directory -Path $script:Root -Force|Out-Null}
-    foreach($name in @('ShinySlack-Web.ps1','ShinySlack-Operation.ps1','index.html','Start-ShinySlack.cmd','Start-ShinySlack.ps1','Install-ShinySlack.ps1')){$src=Join-Path $script:SourceDir $name;if(Test-Path $src){$dst=Join-Path $script:Root $name;if([IO.Path]::GetFullPath($src) -ne [IO.Path]::GetFullPath($dst)){Copy-Item $src $dst -Force}}}
+    foreach($name in @('ShinySlack-Web.ps1','ShinySlack-Operation.ps1','index.html','Start-ShinySlack.cmd','Start-ShinySlack.ps1','Start-ShinySlack-Background.ps1','Install-ShinySlack.ps1','version.txt')){$src=Join-Path $script:SourceDir $name;if(Test-Path $src){$dst=Join-Path $script:Root $name;if([IO.Path]::GetFullPath($src) -ne [IO.Path]::GetFullPath($dst)){Copy-Item $src $dst -Force}}}
     try{$desktop=[Environment]::GetFolderPath('Desktop');$lnk=Join-Path $desktop 'ShinySlack.lnk';$ws=New-Object -ComObject WScript.Shell;$s=$ws.CreateShortcut($lnk);$s.TargetPath=Join-Path $script:Root 'Start-ShinySlack.cmd';$s.WorkingDirectory=$script:Root;$s.IconLocation="$env:SystemRoot\System32\shell32.dll,168";$s.Description='Open ShinySlack';$s.Save()}catch{}
 }
 function Start-AsyncOperation {
@@ -882,34 +882,71 @@ $listener=$null}}
                         }
                     }
 
-                    $headers = @{
-                        'User-Agent' = 'ShinySlack'
-                        'Accept'     = 'application/vnd.github+json'
+                                                            $headers = @{
+                        'User-Agent'           = 'ShinySlack'
+                        'Accept'               = 'application/vnd.github+json'
+                        'X-GitHub-Api-Version' = '2022-11-28'
                     }
 
-                    $oldProtocol = [Net.ServicePointManager]::SecurityProtocol
+                    $oldProtocol =
+                        [Net.ServicePointManager]::SecurityProtocol
 
                     try {
                         [Net.ServicePointManager]::SecurityProtocol =
-                            $oldProtocol -bor [Net.SecurityProtocolType]::Tls12
+                            $oldProtocol -bor
+                            [Net.SecurityProtocolType]::Tls12
 
-                        $releases = @(
+                        $releaseResponse =
                             Invoke-RestMethod `
                                 -Uri 'https://api.github.com/repos/The-Pr0grammer/ShinySlack/releases?per_page=20' `
                                 -Headers $headers `
                                 -Method Get `
                                 -TimeoutSec 10
-                        )
                     }
                     finally {
-                        [Net.ServicePointManager]::SecurityProtocol = $oldProtocol
+                        [Net.ServicePointManager]::SecurityProtocol =
+                            $oldProtocol
                     }
 
-                    $latest = $releases |
-                        Where-Object { -not $_.draft } |
-                        Select-Object -First 1
+                    # Windows PowerShell 5.1 can preserve a returned
+                    # JSON array as a nested array object. Flatten it
+                    # explicitly instead of relying on pipeline behavior.
+                    $latest = $null
 
-                    if(!$latest) {
+                    $releaseQueue =
+                        New-Object System.Collections.Queue
+
+                    $releaseQueue.Enqueue(
+                        $releaseResponse
+                    )
+
+                    while(
+                        $releaseQueue.Count -gt 0 -and
+                        !$latest
+                    ) {
+                        $item =
+                            $releaseQueue.Dequeue()
+
+                        if($null -eq $item) {
+                            continue
+                        }
+
+                        if($item -is [System.Array]) {
+
+                            foreach($nested in $item) {
+                                $releaseQueue.Enqueue(
+                                    $nested
+                                )
+                            }
+
+                            continue
+                        }
+
+                        if(-not [bool]$item.draft) {
+                            $latest = $item
+                        }
+                    }
+if(!$latest) {
                         throw 'GitHub returned no published ShinySlack releases.'
                     }
 
