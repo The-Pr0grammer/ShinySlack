@@ -208,23 +208,103 @@ function Write-Region {
     param(
         [string]$File,
         [long]$Offset,
-        [byte[]]$Bytes
+        [byte[]]$Bytes,
+        [int]$TimeoutSeconds = 12
     )
 
-    $fs=[IO.File]::Open(
-        $File,
-        [IO.FileMode]::Open,
-        [IO.FileAccess]::ReadWrite,
-        [IO.FileShare]::None
-    )
+    $deadline =
+        (Get-Date).AddSeconds(
+            [Math]::Max(
+                2,
+                $TimeoutSeconds
+            )
+        )
 
-    try{
-        $fs.Position=$Offset
-        $fs.Write($Bytes,0,$Bytes.Length)
-        $fs.Flush()
-    }finally{
-        $fs.Close()
+    $lastError =
+        $null
+
+
+    while((Get-Date) -lt $deadline){
+
+        $stream =
+            $null
+
+        try{
+
+            $stream =
+                [IO.File]::Open(
+                    $File,
+                    [IO.FileMode]::Open,
+                    [IO.FileAccess]::ReadWrite,
+                    [IO.FileShare]::None
+                )
+
+
+            if(
+                ($Offset + $Bytes.Length) -gt
+                $stream.Length
+            ){
+
+                throw (
+                    'Saved cache region is outside the current file.'
+                )
+            }
+
+
+            $stream.Position =
+                $Offset
+
+
+            $stream.Write(
+                $Bytes,
+                0,
+                $Bytes.Length
+            )
+
+
+            $stream.Flush()
+
+
+            return
+        }
+        catch [System.IO.IOException] {
+
+            $lastError =
+                $_.Exception
+
+
+            Start-Sleep `
+                -Milliseconds 250
+        }
+        finally {
+
+            if($stream){
+
+                try{
+                    $stream.Dispose()
+                }
+                catch{}
+            }
+        }
     }
+
+
+    $detail =
+        if($lastError){
+            $lastError.Message
+        }
+        else {
+            'unknown lock'
+        }
+
+
+    throw (
+        'Slack cache file remained locked for ' +
+        $TimeoutSeconds +
+        ' seconds after Slack shutdown. ' +
+        'No cache write was completed. Last error: ' +
+        $detail
+    )
 }
 
 function Capture-And-Silence {
@@ -304,7 +384,7 @@ function Capture-And-Silence {
 
     if($wasRunning){
         Stop-SlackForPatch | Out-Null
-        Start-Sleep -Milliseconds 700
+        Start-Sleep -Milliseconds 1200
     }
 
     try{
@@ -372,7 +452,7 @@ function Restore-ExactFallback {
 
         if($wasRunning){
             Stop-SlackForPatch | Out-Null
-            Start-Sleep -Milliseconds 700
+            Start-Sleep -Milliseconds 1200
         }
 
         try{
@@ -413,6 +493,7 @@ $mutex =
 
 $locked=$false
 $previous='legacy'
+$previousRouterEnabled=$true
 
 try{
     try{
@@ -434,6 +515,16 @@ try{
                 ).mode
         }catch{}
     }
+
+    try{
+        $previousRouterEnabled =
+            [bool](Read-RouterConfig).enabled
+    }
+    catch{
+        $previousRouterEnabled =
+            $true
+    }
+
 
     Save-Mode $previous $true $false
 
@@ -479,13 +570,43 @@ try{
         Write-Host 'Slack/cache fallback restored. Router audio is disabled.'
     }
 }catch{
-    Save-Mode 'legacy' $false $false $_.Exception.Message
+
+    $failure =
+        $_.Exception.Message
+
+
+    if($Mode -eq 'RouterExclusive'){
+
+        try{
+            [void](
+                Restore-ExactFallback
+            )
+        }
+        catch{}
+    }
+
+
+    try{
+        Set-RouterEnabled `
+            -Enabled $previousRouterEnabled
+    }
+    catch{}
+
+
+    Save-Mode `
+        'legacy' `
+        $false `
+        $false `
+        $failure
+
 
     try{
         Start-LegacyWatcher
-    }catch{}
+    }
+    catch{}
 
-    throw
+
+    throw $failure
 }finally{
     if($locked){
         try{
