@@ -275,26 +275,111 @@ function Get-StatusObject {
         if($diagParts.Count){ $diag=$diagParts -join "`n`n"; if($log){$log="WATCHER DIAGNOSTICS:`n$diag`n`n$log"}else{$log="WATCHER DIAGNOSTICS:`n$diag"} }
     }
 
+    # Activity is derived from ACTUAL successful ShinySlack playback.
+    # No Slack message-body scraping is required.
     $notifications = @()
-    $recentPath = Join-Path $script:Root 'recent-notifications.json'
+    $routerLog = Join-Path $script:Root 'channel-router.log'
 
-    if(Test-Path -LiteralPath $recentPath) {
+    if(Test-Path -LiteralPath $routerLog) {
 
         try {
-            $raw = Get-Content `
-                -LiteralPath $recentPath `
-                -Raw `
-                -Encoding UTF8
+            $routerLines = @(
+                Get-Content `
+                    -LiteralPath $routerLog `
+                    -Tail 150 `
+                    -Encoding UTF8
+            )
 
-            if($raw) {
-                $notifications = @($raw | ConvertFrom-Json)
+            $activity = @()
+
+            foreach($line in $routerLines) {
+
+                # Example:
+                # 2026-11-20 16:25:01.123 ROUTED channel=#Slackbot sound=foo.mp3 backend=WAV
+                #
+                # Also catches:
+                # STACK_EXTRA
+                # STACK_EXTRA_DEFAULT
+                # DEFAULT
+
+                if(
+                    $line -match `
+                    '^(?<stamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) (?<kind>ROUTED|DEFAULT|STACK_EXTRA|STACK_EXTRA_DEFAULT) channel=(?<channel>\S+) sound=(?<sound>.+?) backend=(?<backend>\S+)$'
+                ) {
+                    $stamp   = $Matches['stamp']
+                    $kind    = $Matches['kind']
+                    $channel = $Matches['channel']
+                    $sound   = $Matches['sound']
+                    $backend = $Matches['backend']
+
+                    try {
+                        $when = [datetime]::ParseExact(
+                            $stamp,
+                            'yyyy-MM-dd HH:mm:ss.fff',
+                            [Globalization.CultureInfo]::InvariantCulture
+                        ).ToString('o')
+                    }
+                    catch {
+                        $when = (Get-Date).ToString('o')
+                    }
+
+                    $source = $channel
+
+                    if(
+                        [string]::IsNullOrWhiteSpace($source) -or
+                        $source -eq 'unknown'
+                    ) {
+                        $source = 'Slack'
+                    }
+                    elseif(!$source.StartsWith('#')) {
+                        $source = "#$source"
+                    }
+
+                    $description = switch($kind) {
+
+                        'ROUTED' {
+                            'Routed notification'
+                        }
+
+                        'DEFAULT' {
+                            'Default notification'
+                        }
+
+                        'STACK_EXTRA' {
+                            'Stacked routed notification'
+                        }
+
+                        'STACK_EXTRA_DEFAULT' {
+                            'Stacked default notification'
+                        }
+
+                        default {
+                            'Notification'
+                        }
+                    }
+
+                    $activity += [pscustomobject]@{
+                        time    = $when
+                        source  = $source
+                        message = $description
+                        sound   = $sound
+                        backend = $backend
+                    }
+                }
             }
+
+            # Newest first; cap dashboard history.
+            $notifications = @(
+                $activity |
+                Sort-Object time -Descending |
+                Select-Object -First 30
+            )
         }
         catch {
             Write-WebException `
                 $_ `
                 $RequestId `
-                'Recent notification feed read failed'
+                'Router activity feed read failed'
         }
     }
 

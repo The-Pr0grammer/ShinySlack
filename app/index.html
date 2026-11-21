@@ -7,7 +7,15 @@
 <style>
 :root{color-scheme:dark;--bg:#090b11;--card:#121622;--card2:#0e121c;--text:#f5f7fb;--muted:#9aa6b7;--line:#252c3a;--cyan:#55d9ff;--pink:#ff5bc8;--good:#54e39a;--warn:#ffd166;--bad:#ff6b7a}
 *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 20% 0%,#17223d 0,transparent 34%),radial-gradient(circle at 95% 20%,#351531 0,transparent 32%),var(--bg);font-family:Inter,Segoe UI,system-ui,sans-serif;color:var(--text);min-height:100vh}.wrap{width:min(980px,calc(100% - 32px));margin:0 auto;padding:48px 0 64px}.brand{display:flex;align-items:center;gap:14px;margin-bottom:8px}.logo{width:48px;height:48px;border-radius:14px;background:linear-gradient(135deg,var(--cyan),var(--pink));display:grid;place-items:center;font-size:25px;box-shadow:0 0 32px #55d9ff35}.brand h1{font-size:32px;margin:0;letter-spacing:-1px}.tag{color:var(--muted);font-size:16px;margin:0 0 30px}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}.stat{background:#10141eaa;border:1px solid var(--line);border-radius:16px;padding:15px 16px;backdrop-filter:blur(12px)}.stat .k{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:8px}.stat .v{font-size:15px;font-weight:700}.good{color:var(--good)}.warn{color:var(--warn)}.bad{color:var(--bad)}.card{background:linear-gradient(180deg,#131824e8,#0e121be8);border:1px solid var(--line);border-radius:22px;padding:24px;box-shadow:0 18px 50px #0006;margin-bottom:18px}.card h2{margin:0 0 8px;font-size:20px}.sub{color:var(--muted);font-size:14px;line-height:1.55}.drop{margin-top:18px;border:1.5px dashed #3a455a;border-radius:18px;padding:32px;text-align:center;background:#0b0f17;transition:.2s;cursor:pointer}.drop.drag{border-color:var(--cyan);background:#0d1721;box-shadow:inset 0 0 30px #55d9ff12}.drop strong{display:block;font-size:17px;margin-bottom:7px}.drop span{color:var(--muted);font-size:13px}.fileRow{display:none;align-items:center;gap:12px;margin-top:16px;padding:12px 14px;border-radius:14px;background:#0b0f17;border:1px solid var(--line)}.fileRow.show{display:flex}.fileMeta{min-width:0;flex:1}.fileName{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.fileSize{font-size:12px;color:var(--muted);margin-top:3px}audio{width:220px;height:34px}.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}button{border:1px solid var(--line);border-radius:12px;background:#161c28;color:var(--text);padding:11px 15px;font-weight:700;cursor:pointer;transition:.15s}button:hover{transform:translateY(-1px);border-color:#46526a}button.primary{border:0;background:linear-gradient(135deg,var(--cyan),var(--pink));color:#071018;padding:12px 20px}button:disabled{opacity:.45;cursor:not-allowed;transform:none}.notice{margin-top:16px;padding:13px 14px;border-radius:13px;background:#191710;border:1px solid #4a4021;color:#f4d987;font-size:13px;line-height:1.5}.result{display:none;margin-top:15px;padding:13px 14px;border-radius:13px;white-space:pre-wrap;font-family:Consolas,monospace;font-size:12px;max-height:220px;overflow:auto}.result.show{display:block}.result.ok{background:#0d1d17;border:1px solid #1d5b3b;color:#baf3d3}.result.err{background:#221015;border:1px solid #6b2631;color:#ffc1c8}.log{background:#080b11;border:1px solid var(--line);border-radius:14px;padding:14px;min-height:140px;max-height:280px;overflow:auto;font:12px/1.55 Consolas,monospace;color:#bac5d5;white-space:pre-wrap}.activityFeed{display:flex;flex-direction:column;gap:9px;min-height:100px;max-height:340px;overflow:auto}
-.activityItem{background:#080b11;border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+.activityItem{
+  background:#080b11;
+  border:1px solid var(--line);
+  border-left:4px solid var(--activityAccent,#55d8ff);
+  border-radius:14px;
+  padding:12px 14px;
+  box-shadow:inset 10px 0 22px -20px var(--activityAccent,#55d8ff);
+  transition:border-color .2s ease,box-shadow .2s ease;
+}
 .activityTop{display:flex;align-items:center;gap:10px}
 .activitySource{font-weight:800;color:#f3f6fb}
 .activityTime{margin-left:auto;font:11px Consolas,monospace;color:#687489}
@@ -22,7 +30,7 @@
 </head>
 <body>
 <div class="wrap">
-  <div class="brand"><div class="logo">S</div><h1>ShinySlack</h1><span style="font:12px Consolas,monospace;color:#55d9ff;border:1px solid #2d5363;border-radius:999px;padding:4px 8px">V2 BETA · ENGINE V16</span></div>
+  <div class="brand"><div class="logo">S</div><h1>ShinySlack</h1><span style="font:12px Consolas,monospace;color:#55d9ff;border:1px solid #2d5363;border-radius:999px;padding:4px 8px">V2.5 BETA · ENGINE V16</span></div>
   <p class="tag">Your Slack. Your sound. Local-only Windows patcher.</p>
 
   <div class="grid">
@@ -92,7 +100,7 @@
   </section>
 <section class="card">
     <h2>Activity</h2>
-    <div class="sub">Recent Slack notifications from this ShinySlack session. Message previews stay local and are cleared when the notification router restarts.</div>
+    <div class="sub">Recent ShinySlack notification audio events. Each card represents a sound that actually fired, including independently routed alerts inside notification stacks.</div>
     <div id="activityFeed" class="activityFeed" style="margin-top:14px">
       <div class="activityEmpty">No Slack notifications yet.</div>
     </div>
@@ -363,6 +371,45 @@ function renderChannelAudio(s){
     box.appendChild(row);
   });
 }
+const activityColors=[
+  '#55d8ff',
+  '#ff5cc8',
+  '#63e6a3',
+  '#ffc857',
+  '#a78bfa',
+  '#5ea1ff',
+  '#ff7b72',
+  '#b5e853',
+  '#ff8fab',
+  '#44d7c4'
+];
+
+function activityColorFor(n,index,previousColor){
+  const key=[
+    n.time||'',
+    n.source||'',
+    n.sound||'',
+    n.message||''
+  ].join('|');
+
+  let hash=0;
+
+  for(let i=0;i<key.length;i++){
+    hash=((hash<<5)-hash)+key.charCodeAt(i);
+    hash|=0;
+  }
+
+  let colorIndex=Math.abs(hash)%activityColors.length;
+  let color=activityColors[colorIndex];
+
+  // Never let neighboring Activity cards share the same color.
+  if(color===previousColor){
+    colorIndex=(colorIndex+1+index)%activityColors.length;
+    color=activityColors[colorIndex];
+  }
+
+  return color;
+}
 function renderActivity(items){
   const box=$('activityFeed');
 
@@ -378,9 +425,25 @@ function renderActivity(items){
     return;
   }
 
-  items.forEach(n=>{
+  let previousActivityColor=null;
+
+  items.forEach((n,index)=>{
     const card=document.createElement('div');
     card.className='activityItem';
+
+    const accent=
+      activityColorFor(
+        n,
+        index,
+        previousActivityColor
+      );
+
+    previousActivityColor=accent;
+
+    card.style.setProperty(
+      '--activityAccent',
+      accent
+    );
 
     const top=document.createElement('div');
     top.className='activityTop';
@@ -388,9 +451,11 @@ function renderActivity(items){
     const source=document.createElement('span');
     source.className='activitySource';
     source.textContent=n.source||'Slack';
+    source.style.color=accent;
 
     const time=document.createElement('span');
     time.className='activityTime';
+    time.style.color=accent;
 
     try{
       time.textContent=
