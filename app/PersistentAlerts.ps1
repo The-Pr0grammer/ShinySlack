@@ -25,6 +25,21 @@ $script:Offset = 0L
 $script:AutoDismiss = $true
 $script:AutoDismissSeconds = 15
 $script:LastSettingsRead = [datetime]::MinValue
+# SHINY-DECK-POLISH-STATE-V1
+$script:DeckPositionFile =
+    Join-Path `
+        $root `
+        'persistent-alerts-window.json'
+
+$script:DeckPositionInitialized =
+    $false
+
+$script:DeckScrollOffset =
+    0
+
+$script:ActiveDeckScrollHandler =
+    $null
+
 
 $script:Palette = @(
     '#55d8ff',
@@ -119,103 +134,499 @@ $form.BackColor = [Drawing.Color]::FromArgb(20,22,27)
 $form.ForeColor = [Drawing.Color]::White
 $form.Width = 390
 $form.Height = 100
-$form.Opacity = .97
-$form.AutoScroll = $true
+$form.Opacity = .985
+$form.AutoScroll = $false
+# SHINY-DECK-GLOBAL-WHEEL-V1
+$form.Add_MouseWheel({
+    param($sender,$eventArgs)
 
-function Position-Form {
-    $wa = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+    if($script:ActiveDeckScrollHandler){
+        & $script:ActiveDeckScrollHandler $eventArgs.Delta
+    }
+})
 
-    $form.Left =
-        $wa.Left + 12
 
-    $form.Top =
-        $wa.Bottom -
-        $form.Height -
-        12
+function Get-DeckWorkingArea {
+
+    try {
+
+        $center =
+            New-Object Drawing.Point(
+                (
+                    $form.Left +
+                    [Math]::Max(
+                        1,
+                        [int]($form.Width / 2)
+                    )
+                ),
+                (
+                    $form.Top +
+                    [Math]::Max(
+                        1,
+                        [int]($form.Height / 2)
+                    )
+                )
+            )
+
+
+        return (
+            [System.Windows.Forms.Screen]::FromPoint(
+                $center
+            )
+        ).WorkingArea
+    }
+    catch {
+
+        return (
+            [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+        )
+    }
 }
 
+
+function Clamp-DeckPosition {
+
+    $wa =
+        Get-DeckWorkingArea
+
+
+    $margin =
+        8
+
+
+    $maxLeft =
+        [Math]::Max(
+            ($wa.Left + $margin),
+            ($wa.Right - $form.Width - $margin)
+        )
+
+
+    $maxTop =
+        [Math]::Max(
+            ($wa.Top + $margin),
+            ($wa.Bottom - $form.Height - $margin)
+        )
+
+
+    $form.Left =
+        [Math]::Min(
+            $maxLeft,
+            [Math]::Max(
+                ($wa.Left + $margin),
+                $form.Left
+            )
+        )
+
+
+    $form.Top =
+        [Math]::Min(
+            $maxTop,
+            [Math]::Max(
+                ($wa.Top + $margin),
+                $form.Top
+            )
+        )
+}
+
+
+function Save-DeckPosition {
+
+    try {
+
+        $state =
+            [ordered]@{
+                x =
+                    [int]$form.Left
+
+                y =
+                    [int]$form.Top
+
+                savedAt =
+                    (Get-Date).ToString('o')
+            } |
+            ConvertTo-Json
+
+
+        [IO.File]::WriteAllText(
+            $script:DeckPositionFile,
+            $state,
+            (New-Object Text.UTF8Encoding($false))
+        )
+    }
+    catch {}
+}
+
+
+function Position-Form {
+
+    if(!$script:DeckPositionInitialized){
+
+        $loaded =
+            $false
+
+
+        if(
+            Test-Path `
+                -LiteralPath $script:DeckPositionFile
+        ){
+            try {
+
+                $saved =
+                    Get-Content `
+                        -LiteralPath $script:DeckPositionFile `
+                        -Raw `
+                        -Encoding UTF8 |
+                    ConvertFrom-Json
+
+
+                if(
+                    $null -ne $saved.x -and
+                    $null -ne $saved.y
+                ){
+                    $form.Left =
+                        [int]$saved.x
+
+                    $form.Top =
+                        [int]$saved.y
+
+                    $loaded =
+                        $true
+                }
+            }
+            catch {}
+        }
+
+
+        if(!$loaded){
+
+            $wa =
+                [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+
+
+            $form.Left =
+                $wa.Left + 12
+
+
+            $form.Top =
+                $wa.Bottom -
+                $form.Height -
+                12
+        }
+
+
+        $script:DeckPositionInitialized =
+            $true
+    }
+
+
+    Clamp-DeckPosition
+}
+
+
+if(-not ('ShinySlackDeckDragV1' -as [type])){
+
+    Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+
+public static class ShinySlackDeckDragV1
+{
+    [DllImport("user32.dll")]
+    public static extern bool ReleaseCapture();
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr SendMessage(
+        IntPtr hWnd,
+        int msg,
+        IntPtr wParam,
+        IntPtr lParam
+    );
+}
+"@
+}
+
+
+function Enable-DeckDrag {
+    param($Control)
+
+    if(!$Control){
+        return
+    }
+
+
+    $Control.Cursor =
+        [System.Windows.Forms.Cursors]::SizeAll
+
+
+    $Control.Add_MouseDown({
+
+        param(
+            $sender,
+            $eventArgs
+        )
+
+
+        if(
+            $eventArgs.Button -ne
+            [System.Windows.Forms.MouseButtons]::Left
+        ){
+            return
+        }
+
+
+        [void][ShinySlackDeckDragV1]::ReleaseCapture()
+
+
+        [void][ShinySlackDeckDragV1]::SendMessage(
+            $form.Handle,
+            0x00A1,
+            [IntPtr]2,
+            [IntPtr]::Zero
+        )
+
+
+        Clamp-DeckPosition
+        Save-DeckPosition
+    })
+}
+
+
 function Render-Tucked {
+
     $form.SuspendLayout()
 
     try {
+
+        $script:ActiveDeckScrollHandler =
+            $null
+
+
         $form.Controls.Clear()
         $form.AutoScroll = $false
 
-        $form.Width = 230
-        $form.Height = 34
+        $form.Width = 248
+        $form.Height = 38
 
-        $bar = New-Object System.Windows.Forms.Panel
-        $bar.Dock = 'Fill'
-        $bar.BackColor = [Drawing.Color]::FromArgb(24,27,33)
 
-        $count = $script:Alerts.Count
+        $bar =
+            New-Object System.Windows.Forms.Panel
 
-        if($count -eq 1){
-            $countText = '1 alert'
-        }
-        else {
-            $countText = "$count alerts"
-        }
+        $bar.Dock =
+            'Fill'
 
-        $label = New-Object System.Windows.Forms.Label
-        $label.Left = 12
-        $label.Top = 8
-        $label.Width = 172
-        $label.Height = 18
-        $label.Text = "ShinySlack   $countText"
-        $label.ForeColor = [Drawing.Color]::Gainsboro
-        $label.Font = New-Object Drawing.Font(
-            'Segoe UI',
-            9,
-            [Drawing.FontStyle]::Bold
-        )
+        $bar.BackColor =
+            [Drawing.Color]::FromArgb(
+                12,
+                17,
+                24
+            )
 
-        $plus = New-Button '+' 28
-        $plus.Left = 194
-        $plus.Top = 5
-        $plus.Height = 24
+
+        $accent =
+            New-Object System.Windows.Forms.Panel
+
+        $accent.Left = 0
+        $accent.Top = 0
+        $accent.Width = 3
+        $accent.Height = 38
+
+        $accent.BackColor =
+            [Drawing.Color]::FromArgb(
+                85,
+                216,
+                255
+            )
+
+
+        $grip =
+            New-Object System.Windows.Forms.Label
+
+        $grip.Left = 10
+        $grip.Top = 10
+        $grip.Width = 18
+        $grip.Height = 16
+        $grip.Text = '::'
+
+        $grip.ForeColor =
+            [Drawing.Color]::FromArgb(
+                85,
+                102,
+                123
+            )
+
+        $grip.Font =
+            New-Object Drawing.Font(
+                'Consolas',
+                9,
+                [Drawing.FontStyle]::Bold
+            )
+
+
+        $title =
+            New-Object System.Windows.Forms.Label
+
+        $title.Left = 31
+        $title.Top = 9
+        $title.Width = 78
+        $title.Height = 18
+        $title.Text = 'ShinySlack'
+
+        $title.ForeColor =
+            [Drawing.Color]::FromArgb(
+                233,
+                240,
+                248
+            )
+
+        $title.Font =
+            New-Object Drawing.Font(
+                'Segoe UI',
+                9,
+                [Drawing.FontStyle]::Bold
+            )
+
+
+        $countText =
+            if($script:Alerts.Count -eq 1){
+                '1 alert'
+            }
+            else {
+                "$($script:Alerts.Count) alerts"
+            }
+
+
+        $count =
+            New-Object System.Windows.Forms.Label
+
+        $count.Left = 112
+        $count.Top = 10
+        $count.Width = 84
+        $count.Height = 17
+        $count.Text = $countText
+
+        $count.ForeColor =
+            [Drawing.Color]::FromArgb(
+                111,
+                129,
+                151
+            )
+
+        $count.Font =
+            New-Object Drawing.Font(
+                'Segoe UI',
+                8
+            )
+
+
+        $plus =
+            New-Button '+' 28
+
+        $plus.Left = 214
+        $plus.Top = 6
+        $plus.Height = 26
+
+        $plus.BackColor =
+            [Drawing.Color]::FromArgb(
+                23,
+                31,
+                42
+            )
+
+        $plus.ForeColor =
+            [Drawing.Color]::FromArgb(
+                101,
+                222,
+                255
+            )
+
+
+        Set-RoundedRegion $plus 8
+
 
         $plus.Add_Click({
-            $now = Get-Date
+
+            $now =
+                Get-Date
+
 
             foreach($a in @($script:Alerts)){
-                if(!$a.ExpireAt){ continue }
 
-                $pauseFrom = $script:TuckStarted
+                if(!$a.ExpireAt){
+                    continue
+                }
+
+
+                $pauseFrom =
+                    $script:TuckStarted
+
 
                 if(
                     $a.AddedAt -and
                     $a.AddedAt -gt $pauseFrom
                 ){
-                    $pauseFrom = $a.AddedAt
+                    $pauseFrom =
+                        $a.AddedAt
                 }
 
+
                 if($pauseFrom){
+
                     $a.ExpireAt =
                         $a.ExpireAt.Add(
-                            $now - $pauseFrom
+                            $now -
+                            $pauseFrom
                         )
                 }
             }
 
-            $script:Tucked = $false
-            $script:TuckStarted = $null
+
+            $script:Tucked =
+                $false
+
+            $script:TuckStarted =
+                $null
+
 
             Render-Expanded
         })
 
-        $bar.Controls.Add($label)
+
+        foreach(
+            $dragSurface in
+            @(
+                $bar,
+                $grip,
+                $title,
+                $count
+            )
+        ){
+            Enable-DeckDrag `
+                $dragSurface
+        }
+
+
+        $bar.Controls.Add($accent)
+        $bar.Controls.Add($grip)
+        $bar.Controls.Add($title)
+        $bar.Controls.Add($count)
         $bar.Controls.Add($plus)
+
         $form.Controls.Add($bar)
 
+
         Position-Form
+        Set-RoundedRegion $form 12
+
 
         if(!$form.Visible){
             $form.Show()
         }
     }
     finally {
-        $form.ResumeLayout($true)
+
+        $form.ResumeLayout(
+            $true
+        )
     }
 }
 
@@ -767,15 +1178,9 @@ function Render-Expanded {
 
     try {
         $form.Controls.Clear()
-
-        # Reset WinForms virtual scroll origin before rebuilding.
-        # Without this, a previous scroll position can leave a
-        # large blank area above the recreated header/cards.
+        # SHINY-DECK-CUSTOM-SCROLL-V1
         $form.AutoScroll = $false
-        $form.AutoScrollPosition = [Drawing.Point]::Empty
-        $form.AutoScrollMinSize = [Drawing.Size]::Empty
-        $form.AutoScroll = $true
-        $form.Width = 410
+        $form.Width = 404
 
         $items = @(
             $script:Alerts |
@@ -797,7 +1202,7 @@ function Render-Expanded {
 
         $header.Left = 0
         $header.Top = 0
-        $header.Width = 390
+        $header.Width = 404
         $header.Height = 32
 
         $header.BackColor =
@@ -810,10 +1215,33 @@ function Render-Expanded {
         Set-RoundedRegion $header 10
 
 
+        $dragGrip =
+            New-Object System.Windows.Forms.Label
+
+        $dragGrip.Left = 10
+        $dragGrip.Top = 8
+        $dragGrip.Width = 18
+        $dragGrip.Height = 17
+        $dragGrip.Text = '::'
+
+        $dragGrip.ForeColor =
+            [Drawing.Color]::FromArgb(
+                79,
+                98,
+                122
+            )
+
+        $dragGrip.Font =
+            New-Object Drawing.Font(
+                'Consolas',
+                9,
+                [Drawing.FontStyle]::Bold
+            )
+
         $title =
             New-Object System.Windows.Forms.Label
 
-        $title.Left = 13
+        $title.Left = 32
         $title.Top = 7
         $title.Width = 98
         $title.Height = 18
@@ -846,7 +1274,7 @@ function Render-Expanded {
         $count =
             New-Object System.Windows.Forms.Label
 
-        $count.Left = 108
+        $count.Left = 118
         $count.Top = 8
         $count.Width = 100
         $count.Height = 17
@@ -873,7 +1301,7 @@ function Render-Expanded {
         $minus =
             New-Button '-' 28
 
-        $minus.Left = 317
+        $minus.Left = 337
         $minus.Top = 4
         $minus.Height = 24
 
@@ -910,7 +1338,7 @@ function Render-Expanded {
         $closeAll =
             New-Button 'X' 28
 
-        $closeAll.Left = 349
+        $closeAll.Left = 369
         $closeAll.Top = 4
         $closeAll.Height = 24
 
@@ -949,19 +1377,127 @@ function Render-Expanded {
         })
 
 
+        $header.Controls.Add($dragGrip)
         $header.Controls.Add($title)
         $header.Controls.Add($count)
         $header.Controls.Add($minus)
         $header.Controls.Add($closeAll)
 
+        foreach(
+            $dragSurface in
+            @(
+                $header,
+                $dragGrip,
+                $title,
+                $count
+            )
+        ){
+            Enable-DeckDrag `
+                $dragSurface
+        }
+
         $form.Controls.Add($header)
+
+
+        # =====================================================
+        # CUSTOM CARD VIEWPORT + DARK SCROLLBAR
+        # =====================================================
+
+        $viewport =
+            New-Object System.Windows.Forms.Panel
+
+        $viewport.Left = 0
+        $viewport.Top = 38
+        $viewport.Width = 394
+        $viewport.Height = 100
+
+        $viewport.BackColor =
+            [Drawing.Color]::FromArgb(
+                20,
+                22,
+                27
+            )
+
+        $viewport.AutoScroll =
+            $false
+
+
+        $content =
+            New-Object System.Windows.Forms.Panel
+
+        $content.Left = 0
+        $content.Top = 0
+        $content.Width = 390
+        $content.Height = 100
+
+        $content.BackColor =
+            [Drawing.Color]::FromArgb(
+                20,
+                22,
+                27
+            )
+
+
+        $scrollRail =
+            New-Object System.Windows.Forms.Panel
+
+        $scrollRail.Left = 397
+        $scrollRail.Top = 42
+        $scrollRail.Width = 5
+        $scrollRail.Height = 90
+
+        $scrollRail.BackColor =
+            [Drawing.Color]::FromArgb(
+                23,
+                31,
+                42
+            )
+
+        $scrollRail.Cursor =
+            [Windows.Forms.Cursors]::Hand
+
+
+        $scrollThumb =
+            New-Object System.Windows.Forms.Panel
+
+        $scrollThumb.Left = 0
+        $scrollThumb.Top = 0
+        $scrollThumb.Width = 5
+        $scrollThumb.Height = 36
+
+        $scrollThumb.BackColor =
+            [Drawing.Color]::FromArgb(
+                74,
+                111,
+                131
+            )
+
+        $scrollThumb.Cursor =
+            [Windows.Forms.Cursors]::SizeNS
+
+
+        $scrollRail.Controls.Add(
+            $scrollThumb
+        )
+
+        $viewport.Controls.Add(
+            $content
+        )
+
+        $form.Controls.Add(
+            $viewport
+        )
+
+        $form.Controls.Add(
+            $scrollRail
+        )
 
 
         # =====================================================
         # CARDS
         # =====================================================
 
-        $top = 38
+        $top = 0
 
 
         foreach($a in $items){
@@ -1292,21 +1828,372 @@ function Render-Expanded {
             $card.Controls.Add($x)
 
             $shell.Controls.Add($card)
-            $form.Controls.Add($shell)
+            $content.Controls.Add($shell)
 
 
             $top += 72
         }
-
-
         $form.Height =
             [Math]::Min(
-                $top + 2,
+                ($top + 44),
                 610
             )
 
 
+        $form.Height =
+            [Math]::Max(
+                110,
+                $form.Height
+            )
+
+
+        $viewport.Height =
+            $form.Height - 42
+
+
+        $content.Height =
+            [Math]::Max(
+                $top,
+                $viewport.Height
+            )
+
+
+        $scrollRail.Height =
+            [Math]::Max(
+                24,
+                ($viewport.Height - 8)
+            )
+
+
+        $maxScroll =
+            [Math]::Max(
+                0,
+                ($content.Height - $viewport.Height)
+            )
+
+
+        $scrollState =
+            [pscustomobject]@{
+                Offset =
+                    0
+
+                Max =
+                    $maxScroll
+
+                Dragging =
+                    $false
+
+                StartY =
+                    0
+
+                StartOffset =
+                    0
+            }
+
+
+        if($maxScroll -le 0){
+
+            $scrollRail.Visible =
+                $false
+
+            $script:ActiveDeckScrollHandler =
+                $null
+        }
+        else {
+
+            $scrollRail.Visible =
+                $true
+
+
+            $thumbHeight =
+                [Math]::Max(
+                    36,
+                    [int][Math]::Round(
+                        $scrollRail.Height *
+                        (
+                            $viewport.Height /
+                            [double]$content.Height
+                        )
+                    )
+                )
+
+
+            $thumbHeight =
+                [Math]::Min(
+                    $scrollRail.Height,
+                    $thumbHeight
+                )
+
+
+            $scrollThumb.Height =
+                $thumbHeight
+
+
+            Set-RoundedRegion `
+                $scrollRail `
+                3
+
+
+            Set-RoundedRegion `
+                $scrollThumb `
+                3
+
+
+            $applyScroll = {
+
+                param(
+                    [int]$RequestedOffset
+                )
+
+
+                $offset =
+                    [Math]::Min(
+                        $scrollState.Max,
+                        [Math]::Max(
+                            0,
+                            $RequestedOffset
+                        )
+                    )
+
+
+                $scrollState.Offset =
+                    $offset
+
+
+                $script:DeckScrollOffset =
+                    $offset
+
+
+                $content.Top =
+                    -$offset
+
+
+                $travel =
+                    [Math]::Max(
+                        0,
+                        (
+                            $scrollRail.Height -
+                            $scrollThumb.Height
+                        )
+                    )
+
+
+                $thumbTop =
+                    if(
+                        $scrollState.Max -gt 0 -and
+                        $travel -gt 0
+                    ){
+                        [int][Math]::Round(
+                            $travel *
+                            (
+                                $offset /
+                                [double]$scrollState.Max
+                            )
+                        )
+                    }
+                    else {
+                        0
+                    }
+
+
+                $scrollThumb.Top =
+                    $thumbTop
+
+            }.GetNewClosure()
+
+
+            $scrollWheel = {
+
+                param(
+                    [int]$Delta
+                )
+
+
+                $steps =
+                    [Math]::Max(
+                        1,
+                        [int](
+                            [Math]::Abs($Delta) /
+                            120
+                        )
+                    )
+
+
+                $amount =
+                    56 *
+                    $steps
+
+
+                if($Delta -gt 0){
+                    $amount = -$amount
+                }
+
+
+                & $applyScroll (
+                    $scrollState.Offset +
+                    $amount
+                )
+
+            }.GetNewClosure()
+
+
+            $script:ActiveDeckScrollHandler =
+                $scrollWheel
+
+
+            $scrollRail.Add_MouseDown({
+
+                param(
+                    $sender,
+                    $eventArgs
+                )
+
+
+                if(
+                    $eventArgs.Button -ne
+                    [System.Windows.Forms.MouseButtons]::Left
+                ){
+                    return
+                }
+
+
+                $travel =
+                    [Math]::Max(
+                        1,
+                        (
+                            $scrollRail.Height -
+                            $scrollThumb.Height
+                        )
+                    )
+
+
+                $targetThumbTop =
+                    [Math]::Min(
+                        $travel,
+                        [Math]::Max(
+                            0,
+                            (
+                                $eventArgs.Y -
+                                [int]($scrollThumb.Height / 2)
+                            )
+                        )
+                    )
+
+
+                $targetOffset =
+                    [int][Math]::Round(
+                        $scrollState.Max *
+                        (
+                            $targetThumbTop /
+                            [double]$travel
+                        )
+                    )
+
+
+                & $applyScroll `
+                    $targetOffset
+
+            }.GetNewClosure())
+
+
+            $scrollThumb.Add_MouseDown({
+
+                param(
+                    $sender,
+                    $eventArgs
+                )
+
+
+                if(
+                    $eventArgs.Button -eq
+                    [System.Windows.Forms.MouseButtons]::Left
+                ){
+                    $scrollState.Dragging =
+                        $true
+
+                    $scrollState.StartY =
+                        [System.Windows.Forms.Cursor]::Position.Y
+
+                    $scrollState.StartOffset =
+                        $scrollState.Offset
+                }
+
+            }.GetNewClosure())
+
+
+            $scrollThumb.Add_MouseMove({
+
+                param(
+                    $sender,
+                    $eventArgs
+                )
+
+
+                if(!$scrollState.Dragging){
+                    return
+                }
+
+
+                $deltaY =
+                    [System.Windows.Forms.Cursor]::Position.Y -
+                    $scrollState.StartY
+
+
+                $travel =
+                    [Math]::Max(
+                        1,
+                        (
+                            $scrollRail.Height -
+                            $scrollThumb.Height
+                        )
+                    )
+
+
+                $offsetDelta =
+                    [int][Math]::Round(
+                        $scrollState.Max *
+                        (
+                            $deltaY /
+                            [double]$travel
+                        )
+                    )
+
+
+                & $applyScroll (
+                    $scrollState.StartOffset +
+                    $offsetDelta
+                )
+
+            }.GetNewClosure())
+
+
+            $scrollThumb.Add_MouseUp({
+
+                $scrollState.Dragging =
+                    $false
+
+            }.GetNewClosure())
+
+
+            $scrollThumb.Add_MouseLeave({
+
+                if(
+                    [System.Windows.Forms.Control]::MouseButtons -eq
+                    [System.Windows.Forms.MouseButtons]::None
+                ){
+                    $scrollState.Dragging =
+                        $false
+                }
+
+            }.GetNewClosure())
+
+
+            & $applyScroll 0
+        }
+
+
         Position-Form
+        Set-RoundedRegion $form 14
 
 
         if(!$form.Visible){
