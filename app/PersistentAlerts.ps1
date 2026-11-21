@@ -276,6 +276,80 @@ function Convert-ToSendKeysLiteral {
 function Open-SlackConversation {
     param([string]$Channel)
 
+    # SHINY-NATIVE-DEEPLINK-V2
+    try {
+
+        $channelKey =
+            ([string]$Channel).Trim()
+
+
+        if($channelKey.StartsWith('#')){
+            $channelKey = $channelKey.Substring(1)
+        }
+
+
+        $configPath =
+            Join-Path `
+                $env:LOCALAPPDATA `
+                'ShinySlack\channel-routes.json'
+
+
+        if(
+            $channelKey -and
+            (Test-Path -LiteralPath $configPath)
+        ){
+
+            $cfg =
+                Get-Content `
+                    -LiteralPath $configPath `
+                    -Raw `
+                    -Encoding UTF8 |
+                ConvertFrom-Json
+
+
+            if($cfg.deepLinks){
+
+                $property =
+                    $cfg.deepLinks.PSObject.Properties |
+                    Where-Object {
+                        $_.Name -eq $channelKey
+                    } |
+                    Select-Object -First 1
+
+
+                if($property){
+
+                    $team =
+                        [string]$property.Value.team
+
+                    $conversation =
+                        [string]$property.Value.channel
+
+
+                    if(
+                        $team -and
+                        $conversation
+                    ){
+
+                        Start-Process (
+                            'slack://channel?team={0}&id={1}' -f
+                            [Uri]::EscapeDataString($team),
+                            [Uri]::EscapeDataString($conversation)
+                        ) |
+                        Out-Null
+
+
+                        return
+                    }
+                }
+            }
+        }
+    }
+    catch {
+        # Native link failed: fall through to existing
+        # restore/focus behavior.
+    }
+
     # Channel is intentionally ignored now.
     # Clicking any alert simply restores/focuses Slack.
 

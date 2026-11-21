@@ -471,6 +471,316 @@ function Read-Request {
     }
 }
 
+# SHINY-HISTORY-DEEPLINK-HELPERS-V1
+
+function Get-SlackDesktopWorkspaces {
+
+    $candidates =
+        @(
+            (
+                Join-Path `
+                    $env:APPDATA `
+                    'Slack'
+            ),
+            (
+                Join-Path `
+                    $env:LOCALAPPDATA `
+                    'Packages\com.tinyspeck.slackdesktop_8yrtsj140pw4g\LocalCache\Roaming\Slack'
+            )
+        )
+
+
+    foreach(
+        $candidate in
+        $candidates
+    ){
+
+        $statePath =
+            Join-Path `
+                $candidate `
+                'storage\root-state.json'
+
+
+        if(!(Test-Path -LiteralPath $statePath)){
+            continue
+        }
+
+
+        try {
+
+            $state =
+                Get-Content `
+                    -LiteralPath $statePath `
+                    -Raw `
+                    -Encoding UTF8 |
+                ConvertFrom-Json
+
+
+            $result =
+                @()
+
+
+            foreach(
+                $property in
+                $state.workspaces.PSObject.Properties
+            ){
+
+                $workspace =
+                    $property.Value
+
+
+                if(!$workspace.id){
+                    continue
+                }
+
+
+                $result +=
+                    [pscustomobject]@{
+                        name =
+                            [string]$workspace.name
+
+                        domain =
+                            [string]$workspace.domain
+
+                        teamId =
+                            [string]$workspace.id
+                    }
+            }
+
+
+            return @(
+                $result |
+                Sort-Object name
+            )
+        }
+        catch {}
+    }
+
+
+    return @()
+}
+
+
+function Protect-ShinySecret {
+    param([string]$PlainText)
+
+    $secure =
+        ConvertTo-SecureString `
+            -String $PlainText `
+            -AsPlainText `
+            -Force
+
+
+    return ConvertFrom-SecureString `
+        $secure
+}
+
+
+function Get-NotificationLedgerItems {
+    param(
+        [int]$Limit = 30
+    )
+
+    $ledger =
+        Join-Path `
+            $script:Root `
+            'notification-ledger.jsonl'
+
+
+    if(!(Test-Path -LiteralPath $ledger)){
+        return @()
+    }
+
+
+    $items =
+        @()
+
+
+    foreach(
+        $line in
+        @(
+            Get-Content `
+                -LiteralPath $ledger `
+                -Tail 1000 `
+                -Encoding UTF8 `
+                -ErrorAction SilentlyContinue
+        )
+    ){
+
+        if(
+            [string]::IsNullOrWhiteSpace(
+                $line
+            )
+        ){
+            continue
+        }
+
+
+        try {
+
+            $obj =
+                $line |
+                ConvertFrom-Json
+
+
+            $items +=
+                $obj
+        }
+        catch {}
+    }
+
+
+    return @(
+        $items |
+        Sort-Object time -Descending |
+        Select-Object -First $Limit
+    )
+}
+
+
+function Get-HistoryBackfillStatus {
+
+    $authPath =
+        Join-Path `
+            $script:Root `
+            'history-auth.json'
+
+
+    $statusPath =
+        Join-Path `
+            $script:Root `
+            'history-backfill-status.json'
+
+
+    $connected =
+        Test-Path -LiteralPath $authPath
+
+
+    $auth =
+        $null
+
+
+    if($connected){
+
+        try {
+
+            $auth =
+                Get-Content `
+                    -LiteralPath $authPath `
+                    -Raw `
+                    -Encoding UTF8 |
+                ConvertFrom-Json
+        }
+        catch {}
+    }
+
+
+    $state =
+        $null
+
+
+    if(Test-Path -LiteralPath $statusPath){
+
+        try {
+
+            $state =
+                Get-Content `
+                    -LiteralPath $statusPath `
+                    -Raw `
+                    -Encoding UTF8 |
+                ConvertFrom-Json
+        }
+        catch {}
+    }
+
+
+    [pscustomobject]@{
+        connected =
+            $connected
+
+        teamId =
+            if($auth){
+                [string]$auth.teamId
+            }
+            else {
+                ''
+            }
+
+        teamName =
+            if($auth){
+                [string]$auth.teamName
+            }
+            else {
+                ''
+            }
+
+        userName =
+            if($auth){
+                [string]$auth.userName
+            }
+            else {
+                ''
+            }
+
+        lastRun =
+            if($state){
+                [string]$state.lastRun
+            }
+            else {
+                ''
+            }
+
+        recoveredLastRun =
+            if($state){
+                [int]$state.recoveredLastRun
+            }
+            else {
+                0
+            }
+
+        lastError =
+            if($state){
+                [string]$state.lastError
+            }
+            else {
+                ''
+            }
+    }
+}
+
+
+function Start-HistoryBackfillOnce {
+
+    $worker =
+        Join-Path `
+            $script:Root `
+            'HistoryBackfill.ps1'
+
+
+    if(!(Test-Path -LiteralPath $worker)){
+        throw 'HistoryBackfill.ps1 is missing.'
+    }
+
+
+    $ps =
+        Join-Path `
+            $env:SystemRoot `
+            'System32\WindowsPowerShell\v1.0\powershell.exe'
+
+
+    Start-Process `
+        -FilePath $ps `
+        -ArgumentList (
+            '-NoProfile -WindowStyle Hidden ' +
+            '-ExecutionPolicy Bypass ' +
+            '-File "' +
+            $worker +
+            '" -Once'
+        ) `
+        -WindowStyle Hidden |
+    Out-Null
+}
+
 function Get-StatusObject {
     param([string]$RequestId='STATUS')
     Write-WebDiag 'STATUS 1/8: checking install marker.' $RequestId
@@ -578,115 +888,13 @@ function Get-StatusObject {
         if($diagParts.Count){ $diag=$diagParts -join "`n`n"; if($log){$log="WATCHER DIAGNOSTICS:`n$diag`n`n$log"}else{$log="WATCHER DIAGNOSTICS:`n$diag"} }
     }
 
-    # Activity is derived from ACTUAL successful ShinySlack playback.
-    # No Slack message-body scraping is required.
-    $notifications = @()
-    $routerLog = Join-Path $script:Root 'channel-router.log'
-
-    if(Test-Path -LiteralPath $routerLog) {
-
-        try {
-            $routerLines = @(
-                Get-Content `
-                    -LiteralPath $routerLog `
-                    -Tail 8000 `
-                    -Encoding UTF8
-            )
-
-            $activity = @()
-
-            foreach($line in $routerLines) {
-
-                # Example:
-                # 2026-11-20 16:25:01.123 ROUTED channel=#Slackbot sound=foo.mp3 backend=WAV
-                #
-                # Also catches:
-                # STACK_EXTRA
-                # STACK_EXTRA_DEFAULT
-                # DEFAULT
-
-                if(
-                    $line -match `
-                    '^(?<stamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) (?<kind>ROUTED|DEFAULT|STACK_EXTRA|STACK_EXTRA_DEFAULT) channel=(?<channel>\S+) sound=(?<sound>.+?) backend=(?<backend>\S+)(?:\s+.*)?$'
-                ) {
-                    $stamp   = $Matches['stamp']
-                    $kind    = $Matches['kind']
-                    $channel = $Matches['channel']
-                    $sound   = $Matches['sound']
-                    $backend = $Matches['backend']
-
-                    try {
-                        $when = [datetime]::ParseExact(
-                            $stamp,
-                            'yyyy-MM-dd HH:mm:ss.fff',
-                            [Globalization.CultureInfo]::InvariantCulture
-                        ).ToString('o')
-                    }
-                    catch {
-                        $when = (Get-Date).ToString('o')
-                    }
-
-                    $source = $channel
-
-                    if(
-                        [string]::IsNullOrWhiteSpace($source) -or
-                        $source -eq 'unknown'
-                    ) {
-                        $source = 'Slack'
-                    }
-                    elseif(!$source.StartsWith('#')) {
-                        $source = "#$source"
-                    }
-
-                    $description = switch($kind) {
-
-                        'ROUTED' {
-                            'Routed notification'
-                        }
-
-                        'DEFAULT' {
-                            'Default notification'
-                        }
-
-                        'STACK_EXTRA' {
-                            'Stacked routed notification'
-                        }
-
-                        'STACK_EXTRA_DEFAULT' {
-                            'Stacked default notification'
-                        }
-
-                        default {
-                            'Notification'
-                        }
-                    }
-
-                    $activity += [pscustomobject]@{
-                        time    = $when
-                        source  = $source
-                        message = $description
-                        sound   = $sound
-                        backend = $backend
-                        eventKey = $line
-                    }
-                }
-            }
-
-            # Newest first; cap dashboard history.
-            $notifications = @(
-                $activity |
-                Sort-Object time -Descending |
-                Select-Object -First 30
-            )
-        }
-        catch {
-            Write-WebException `
-                $_ `
-                $RequestId `
-                'Router activity feed read failed'
-        }
-    }
-
+    # Activity now comes from the durable notification ledger.
+    # Live router events + recovered Slack history share this file.
+    $notifications =
+        @(
+            Get-NotificationLedgerItems `
+                -Limit 30
+        )
     Write-WebDiag 'STATUS 7/8: checking ffmpeg.' $RequestId
     $ffmpeg=[bool](Get-Command ffmpeg -ErrorAction SilentlyContinue)
 
@@ -724,6 +932,7 @@ function Get-StatusObject {
             notifications  = @($notifications)
             agentBuild     = $agentBuild
             channelAudio   = $channelAudio
+            historyBackfill = Get-HistoryBackfillStatus
         }
 
 
@@ -781,10 +990,13 @@ function Get-ChannelAudioStatus {
         ''
 
 
-    foreach($heartbeatPath in @(
-        $routerStdout,
-        $routerLog
-    )){
+    foreach(
+        $heartbeatPath in
+        @(
+            $routerStdout,
+            $routerLog
+        )
+    ){
 
         if(!(Test-Path -LiteralPath $heartbeatPath)){
             continue
@@ -795,8 +1007,7 @@ function Get-ChannelAudioStatus {
 
             $info =
                 Get-Item `
-                    -LiteralPath $heartbeatPath `
-                    -ErrorAction Stop
+                    -LiteralPath $heartbeatPath
 
 
             $ageSeconds =
@@ -820,6 +1031,12 @@ function Get-ChannelAudioStatus {
 
     $cfg =
         Read-ChannelRoutesConfig
+
+
+    $workspaces =
+        @(
+            Get-SlackDesktopWorkspaces
+        )
 
 
     $routes =
@@ -906,19 +1123,8 @@ function Get-ChannelAudioStatus {
                 ){
 
                     $lastDetected =
-                        '#' + $matches[1]
-
-                    break
-                }
-
-
-                if(
-                    $lines[$i] -match
-                    'channel=unknown'
-                ){
-
-                    $lastDetected =
-                        '[notification without channel]'
+                        '#' +
+                        $matches[1]
 
                     break
                 }
@@ -940,6 +1146,7 @@ function Get-ChannelAudioStatus {
 
         defaultSound =
             if($cfg.defaultSound){
+
                 Split-Path `
                     -Leaf `
                     ([string]$cfg.defaultSound)
@@ -953,6 +1160,9 @@ function Get-ChannelAudioStatus {
 
         deepLinks =
             $cfg.deepLinks
+
+        workspaces =
+            @($workspaces)
 
         lastDetected =
             $lastDetected
@@ -996,23 +1206,17 @@ function Read-ChannelRoutesConfig {
 
 
             if($null -ne $cfg.enabled){
-
-                $enabled =
-                    [bool]$cfg.enabled
+                $enabled = [bool]$cfg.enabled
             }
 
 
             if($null -ne $cfg.volume){
-
-                $volume =
-                    [double]$cfg.volume
+                $volume = [double]$cfg.volume
             }
 
 
             if($null -ne $cfg.defaultSound){
-
-                $defaultSound =
-                    [string]$cfg.defaultSound
+                $defaultSound = [string]$cfg.defaultSound
             }
 
 
@@ -1038,14 +1242,9 @@ function Read-ChannelRoutesConfig {
                     $cfg.deepLinks.PSObject.Properties
                 ){
 
-                    $value =
-                        $p.Value
-
-
                     if(
-                        $value -and
-                        $value.team -and
-                        $value.channel
+                        $p.Value.team -and
+                        $p.Value.channel
                     ){
 
                         $deepLinks[
@@ -1053,10 +1252,10 @@ function Read-ChannelRoutesConfig {
                         ] =
                             [pscustomobject]@{
                                 team =
-                                    [string]$value.team
+                                    [string]$p.Value.team
 
                                 channel =
-                                    [string]$value.channel
+                                    [string]$p.Value.channel
                             }
                     }
                 }
@@ -1065,7 +1264,7 @@ function Read-ChannelRoutesConfig {
         catch {
 
             throw (
-                "Could not read channel-routes.json: {0}" -f
+                'Could not read channel-routes.json: ' +
                 $_.Exception.Message
             )
         }
@@ -1100,10 +1299,11 @@ function Write-ChannelRoutesConfig {
 
 
     $tempPath =
-        $configPath + '.tmp'
+        $configPath +
+        '.tmp'
 
 
-    $deepLinks =
+    $links =
         if($null -ne $Config.deepLinks){
             $Config.deepLinks
         }
@@ -1112,33 +1312,29 @@ function Write-ChannelRoutesConfig {
         }
 
 
-    $object =
-        [ordered]@{
-            version =
-                4
+    [ordered]@{
+        version =
+            5
 
-            enabled =
-                [bool]$Config.enabled
+        enabled =
+            [bool]$Config.enabled
 
-            volume =
-                [double]$Config.volume
+        volume =
+            [double]$Config.volume
 
-            defaultSound =
-                $Config.defaultSound
+        defaultSound =
+            $Config.defaultSound
 
-            routes =
-                $Config.routes
+        routes =
+            $Config.routes
 
-            deepLinks =
-                $deepLinks
-        }
-
-
-    $object |
-        ConvertTo-Json -Depth 10 |
-        Set-Content `
-            -LiteralPath $tempPath `
-            -Encoding UTF8
+        deepLinks =
+            $links
+    } |
+    ConvertTo-Json -Depth 10 |
+    Set-Content `
+        -LiteralPath $tempPath `
+        -Encoding UTF8
 
 
     Move-Item `
@@ -1219,10 +1415,13 @@ function Get-ChannelAudioStatus {
         ''
 
 
-    foreach($heartbeatPath in @(
-        $routerStdout,
-        $routerLog
-    )){
+    foreach(
+        $heartbeatPath in
+        @(
+            $routerStdout,
+            $routerLog
+        )
+    ){
 
         if(!(Test-Path -LiteralPath $heartbeatPath)){
             continue
@@ -1233,8 +1432,7 @@ function Get-ChannelAudioStatus {
 
             $info =
                 Get-Item `
-                    -LiteralPath $heartbeatPath `
-                    -ErrorAction Stop
+                    -LiteralPath $heartbeatPath
 
 
             $ageSeconds =
@@ -1258,6 +1456,12 @@ function Get-ChannelAudioStatus {
 
     $cfg =
         Read-ChannelRoutesConfig
+
+
+    $workspaces =
+        @(
+            Get-SlackDesktopWorkspaces
+        )
 
 
     $routes =
@@ -1344,19 +1548,8 @@ function Get-ChannelAudioStatus {
                 ){
 
                     $lastDetected =
-                        '#' + $matches[1]
-
-                    break
-                }
-
-
-                if(
-                    $lines[$i] -match
-                    'channel=unknown'
-                ){
-
-                    $lastDetected =
-                        '[notification without channel]'
+                        '#' +
+                        $matches[1]
 
                     break
                 }
@@ -1378,6 +1571,7 @@ function Get-ChannelAudioStatus {
 
         defaultSound =
             if($cfg.defaultSound){
+
                 Split-Path `
                     -Leaf `
                     ([string]$cfg.defaultSound)
@@ -1391,6 +1585,9 @@ function Get-ChannelAudioStatus {
 
         deepLinks =
             $cfg.deepLinks
+
+        workspaces =
+            @($workspaces)
 
         lastDetected =
             $lastDetected
@@ -1434,23 +1631,17 @@ function Read-ChannelRoutesConfig {
 
 
             if($null -ne $cfg.enabled){
-
-                $enabled =
-                    [bool]$cfg.enabled
+                $enabled = [bool]$cfg.enabled
             }
 
 
             if($null -ne $cfg.volume){
-
-                $volume =
-                    [double]$cfg.volume
+                $volume = [double]$cfg.volume
             }
 
 
             if($null -ne $cfg.defaultSound){
-
-                $defaultSound =
-                    [string]$cfg.defaultSound
+                $defaultSound = [string]$cfg.defaultSound
             }
 
 
@@ -1476,14 +1667,9 @@ function Read-ChannelRoutesConfig {
                     $cfg.deepLinks.PSObject.Properties
                 ){
 
-                    $value =
-                        $p.Value
-
-
                     if(
-                        $value -and
-                        $value.team -and
-                        $value.channel
+                        $p.Value.team -and
+                        $p.Value.channel
                     ){
 
                         $deepLinks[
@@ -1491,10 +1677,10 @@ function Read-ChannelRoutesConfig {
                         ] =
                             [pscustomobject]@{
                                 team =
-                                    [string]$value.team
+                                    [string]$p.Value.team
 
                                 channel =
-                                    [string]$value.channel
+                                    [string]$p.Value.channel
                             }
                     }
                 }
@@ -1503,7 +1689,7 @@ function Read-ChannelRoutesConfig {
         catch {
 
             throw (
-                "Could not read channel-routes.json: {0}" -f
+                'Could not read channel-routes.json: ' +
                 $_.Exception.Message
             )
         }
@@ -1538,10 +1724,11 @@ function Write-ChannelRoutesConfig {
 
 
     $tempPath =
-        $configPath + '.tmp'
+        $configPath +
+        '.tmp'
 
 
-    $deepLinks =
+    $links =
         if($null -ne $Config.deepLinks){
             $Config.deepLinks
         }
@@ -1550,33 +1737,29 @@ function Write-ChannelRoutesConfig {
         }
 
 
-    $object =
-        [ordered]@{
-            version =
-                4
+    [ordered]@{
+        version =
+            5
 
-            enabled =
-                [bool]$Config.enabled
+        enabled =
+            [bool]$Config.enabled
 
-            volume =
-                [double]$Config.volume
+        volume =
+            [double]$Config.volume
 
-            defaultSound =
-                $Config.defaultSound
+        defaultSound =
+            $Config.defaultSound
 
-            routes =
-                $Config.routes
+        routes =
+            $Config.routes
 
-            deepLinks =
-                $deepLinks
-        }
-
-
-    $object |
-        ConvertTo-Json -Depth 10 |
-        Set-Content `
-            -LiteralPath $tempPath `
-            -Encoding UTF8
+        deepLinks =
+            $links
+    } |
+    ConvertTo-Json -Depth 10 |
+    Set-Content `
+        -LiteralPath $tempPath `
+        -Encoding UTF8
 
 
     Move-Item `
@@ -2302,6 +2485,457 @@ if(!$latest) {
                         $rid `
                         'Channel deep-link update failed'
 
+
+                    Json-Response $client @{
+                        ok =
+                            $false
+
+                        error =
+                            $_.Exception.Message
+                    } 500
+                }
+
+
+                continue
+            }
+
+            # SHINY-DEEPLINK-HISTORY-API-V1
+
+            if(
+                $req.Method -eq 'POST' -and
+                $req.Path -eq '/api/channel/deeplink'
+            ){
+                try {
+
+                    $j =
+                        $req.Body |
+                        ConvertFrom-Json
+
+
+                    $channel =
+                        ([string]$j.channel).Trim()
+
+
+                    if($channel.StartsWith('#')){
+                        $channel = $channel.Substring(1)
+                    }
+
+
+                    if(!$channel){
+                        throw 'Channel is required.'
+                    }
+
+
+                    $channelId =
+                        ([string]$j.channelId).Trim()
+
+
+                    $cfg =
+                        Read-ChannelRoutesConfig
+
+
+                    # Blank ID = unlink.
+                    if(!$channelId){
+
+                        if(
+                            $cfg.deepLinks.ContainsKey(
+                                $channel
+                            )
+                        ){
+
+                            $cfg.deepLinks.Remove(
+                                $channel
+                            )
+                        }
+
+
+                        Write-ChannelRoutesConfig `
+                            $cfg
+
+
+                        Json-Response $client @{
+                            ok =
+                                $true
+
+                            linked =
+                                $false
+
+                            channel =
+                                $channel
+                        }
+
+
+                        continue
+                    }
+
+
+                    if(
+                        $channelId -notmatch
+                        '^[CDG][A-Z0-9]+$'
+                    ){
+
+                        throw (
+                            'Channel ID should look like CXXXXXXXXXX.'
+                        )
+                    }
+
+
+                    $teamId =
+                        ([string]$j.teamId).Trim()
+
+
+                    if(!$teamId){
+
+                        $workspaces =
+                            @(
+                                Get-SlackDesktopWorkspaces
+                            )
+
+
+                        if($workspaces.Count -eq 1){
+
+                            $teamId =
+                                [string]$workspaces[0].teamId
+                        }
+                        else {
+
+                            throw (
+                                'Multiple Slack workspaces detected; choose a workspace.'
+                            )
+                        }
+                    }
+
+
+                    if(
+                        $teamId -notmatch
+                        '^[TE][A-Z0-9]+$'
+                    ){
+
+                        throw 'Invalid workspace/team ID.'
+                    }
+
+
+                    $cfg.deepLinks[$channel] =
+                        [pscustomobject]@{
+                            team =
+                                $teamId
+
+                            channel =
+                                $channelId
+                        }
+
+
+                    Write-ChannelRoutesConfig `
+                        $cfg
+
+
+                    Json-Response $client @{
+                        ok =
+                            $true
+
+                        linked =
+                            $true
+
+                        channel =
+                            $channel
+
+                        team =
+                            $teamId
+
+                        channelId =
+                            $channelId
+                    }
+
+
+                    continue
+                }
+                catch {
+
+                    Json-Response $client @{
+                        ok =
+                            $false
+
+                        error =
+                            $_.Exception.Message
+                    } 500
+                }
+
+
+                continue
+            }
+
+
+            if(
+                $req.Method -eq 'POST' -and
+                $req.Path -eq '/api/channel/open'
+            ){
+                try {
+
+                    $j =
+                        $req.Body |
+                        ConvertFrom-Json
+
+
+                    $channel =
+                        ([string]$j.channel).Trim()
+
+
+                    if($channel.StartsWith('#')){
+                        $channel = $channel.Substring(1)
+                    }
+
+
+                    $cfg =
+                        Read-ChannelRoutesConfig
+
+
+                    if(
+                        $channel -and
+                        $cfg.deepLinks.ContainsKey(
+                            $channel
+                        )
+                    ){
+
+                        $link =
+                            $cfg.deepLinks[$channel]
+
+
+                        $uri =
+                            'slack://channel?team={0}&id={1}' -f
+                            [Uri]::EscapeDataString(
+                                [string]$link.team
+                            ),
+                            [Uri]::EscapeDataString(
+                                [string]$link.channel
+                            )
+
+
+                        Start-Process `
+                            $uri |
+                        Out-Null
+
+
+                        Json-Response $client @{
+                            ok =
+                                $true
+
+                            linked =
+                                $true
+                        }
+                    }
+                    else {
+
+                        Start-Process `
+                            'slack://open' |
+                        Out-Null
+
+
+                        Json-Response $client @{
+                            ok =
+                                $true
+
+                            linked =
+                                $false
+                        }
+                    }
+                }
+                catch {
+
+                    Json-Response $client @{
+                        ok =
+                            $false
+
+                        error =
+                            $_.Exception.Message
+                    } 500
+                }
+
+
+                continue
+            }
+
+
+            if(
+                $req.Method -eq 'POST' -and
+                $req.Path -eq '/api/history/connect'
+            ){
+                try {
+
+                    $j =
+                        $req.Body |
+                        ConvertFrom-Json
+
+
+                    $token =
+                        ([string]$j.token).Trim()
+
+
+                    if(!$token){
+                        throw 'Slack user token is required.'
+                    }
+
+
+                    $headers =
+                        @{
+                            Authorization =
+                                "Bearer $token"
+
+                            Accept =
+                                'application/json'
+
+                            'User-Agent' =
+                                'ShinySlack-History'
+                        }
+
+
+                    $authTest =
+                        Invoke-RestMethod `
+                            -Uri 'https://slack.com/api/auth.test' `
+                            -Headers $headers `
+                            -Method Post `
+                            -TimeoutSec 15
+
+
+                    if(!$authTest.ok){
+
+                        throw (
+                            'Slack auth failed: ' +
+                            $authTest.error
+                        )
+                    }
+
+
+                    $protected =
+                        Protect-ShinySecret `
+                            $token
+
+
+                    $authPath =
+                        Join-Path `
+                            $script:Root `
+                            'history-auth.json'
+
+
+                    [ordered]@{
+                        protectedToken =
+                            $protected
+
+                        teamId =
+                            [string]$authTest.team_id
+
+                        teamName =
+                            [string]$authTest.team
+
+                        userId =
+                            [string]$authTest.user_id
+
+                        userName =
+                            [string]$authTest.user
+
+                        connectedAt =
+                            (Get-Date).ToString('o')
+                    } |
+                    ConvertTo-Json -Depth 5 |
+                    Set-Content `
+                        -LiteralPath $authPath `
+                        -Encoding UTF8
+
+
+                    $statePath =
+                        Join-Path `
+                            $script:Root `
+                            'history-backfill-state.json'
+
+
+                    if(!(Test-Path -LiteralPath $statePath)){
+
+                        [ordered]@{
+                            lastSyncEpoch =
+                                [double](
+                                    [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() -
+                                    86400
+                                )
+                        } |
+                        ConvertTo-Json |
+                        Set-Content `
+                            -LiteralPath $statePath `
+                            -Encoding UTF8
+                    }
+
+
+                    Start-HistoryBackfillOnce
+
+
+                    Json-Response $client @{
+                        ok =
+                            $true
+
+                        teamId =
+                            [string]$authTest.team_id
+
+                        teamName =
+                            [string]$authTest.team
+
+                        userName =
+                            [string]$authTest.user
+                    }
+                }
+                catch {
+
+                    Json-Response $client @{
+                        ok =
+                            $false
+
+                        error =
+                            $_.Exception.Message
+                    } 500
+                }
+
+
+                continue
+            }
+
+
+            if(
+                $req.Method -eq 'POST' -and
+                $req.Path -eq '/api/history/disconnect'
+            ){
+
+                Remove-Item `
+                    (Join-Path $script:Root 'history-auth.json') `
+                    -Force `
+                    -ErrorAction SilentlyContinue
+
+
+                Remove-Item `
+                    (Join-Path $script:Root 'history-backfill-status.json') `
+                    -Force `
+                    -ErrorAction SilentlyContinue
+
+
+                Json-Response $client @{
+                    ok = $true
+                }
+
+
+                continue
+            }
+
+
+            if(
+                $req.Method -eq 'POST' -and
+                $req.Path -eq '/api/history/backfill'
+            ){
+                try {
+
+                    Start-HistoryBackfillOnce
+
+
+                    Json-Response $client @{
+                        ok = $true
+                    }
+                }
+                catch {
 
                     Json-Response $client @{
                         ok =

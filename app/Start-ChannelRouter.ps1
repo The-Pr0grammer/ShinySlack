@@ -21,6 +21,36 @@ if(!(Test-Path -LiteralPath $router)) {
 }
 
 
+# SHINY-HISTORY-WORKER-START-V1
+# The worker owns its own single-instance mutex.
+
+$historyWorker =
+    Join-Path `
+        $root `
+        'HistoryBackfill.ps1'
+
+
+if(Test-Path -LiteralPath $historyWorker){
+
+    $historyPs =
+        Join-Path `
+            $env:SystemRoot `
+            'System32\WindowsPowerShell\v1.0\powershell.exe'
+
+
+    Start-Process `
+        -FilePath $historyPs `
+        -ArgumentList (
+            '-NoProfile -WindowStyle Hidden ' +
+            '-ExecutionPolicy Bypass ' +
+            '-File "' +
+            $historyWorker +
+            '"'
+        ) `
+        -WindowStyle Hidden |
+    Out-Null
+}
+
 # ------------------------------------------------------------
 # Existing router check without WMI/CIM
 # ------------------------------------------------------------

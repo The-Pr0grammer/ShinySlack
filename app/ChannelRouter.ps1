@@ -15,6 +15,7 @@ $script:Build = "TOAST-ROUTER-V3"
 $script:Root = Join-Path $env:LOCALAPPDATA "ShinySlack"
 $script:ConfigPath = Join-Path $script:Root "channel-routes.json"
 $script:LogPath = Join-Path $script:Root "channel-router.log"
+$script:LedgerPath = Join-Path $script:Root "notification-ledger.jsonl"
 $script:WaveCacheDir = Join-Path $script:Root "wave-cache"
 $script:SoundPlayers = @{}
 
@@ -66,9 +67,6 @@ function Write-RouterLog {
     }
 
 
-    # Do not write high-frequency steady-state polling noise.
-    # This could generate enormous logs while adding no useful
-    # information to Activity or Persistent Alerts.
     if(
         $Message.StartsWith(
             'STACK_STABLE ',
@@ -79,18 +77,182 @@ function Write-RouterLog {
     }
 
 
+    $now =
+        Get-Date
+
+
+    $line =
+        "{0} {1}" -f
+        $now.ToString(
+            'yyyy-MM-dd HH:mm:ss.fff'
+        ),
+        $Message
+
+
     try {
 
         Add-Content `
             -LiteralPath $script:LogPath `
-            -Value (
-                "{0} {1}" -f
-                (Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"),
-                $Message
-            ) `
+            -Value $line `
             -Encoding UTF8
     }
     catch {}
+
+
+    # ========================================================
+    # DURABLE ACTIVITY LEDGER
+    #
+    # Router log is diagnostics.
+    # Ledger is history.
+    # ========================================================
+
+    if(
+        $Message -match
+        '^(?<kind>ROUTED|DEFAULT|STACK_EXTRA|STACK_EXTRA_DEFAULT) channel=(?<channel>\S+) sound=(?<sound>.+?) backend=(?<backend>\S+)'
+    ){
+
+        try {
+
+            $channel =
+                [string]$Matches.channel
+
+
+            $source =
+                if(
+                    [string]::IsNullOrWhiteSpace(
+                        $channel
+                    ) -or
+                    $channel -eq 'unknown'
+                ){
+                    'Slack'
+                }
+                elseif($channel.StartsWith('#')){
+                    $channel
+                }
+                else {
+                    '#' + $channel
+                }
+
+
+            $description =
+                switch(
+                    [string]$Matches.kind
+                ){
+
+                    'ROUTED' {
+                        'Routed notification'
+                    }
+
+                    'DEFAULT' {
+                        'Default notification'
+                    }
+
+                    'STACK_EXTRA' {
+                        'Stacked routed notification'
+                    }
+
+                    'STACK_EXTRA_DEFAULT' {
+                        'Stacked default notification'
+                    }
+
+                    default {
+                        'Notification'
+                    }
+                }
+
+
+            $entry =
+                [ordered]@{
+                    schema =
+                        1
+
+                    time =
+                        $now.ToString('o')
+
+                    source =
+                        $source
+
+                    message =
+                        $description
+
+                    sound =
+                        [string]$Matches.sound
+
+                    backend =
+                        [string]$Matches.backend
+
+                    origin =
+                        'live'
+
+                    recovered =
+                        $false
+
+                    teamId =
+                        ''
+
+                    channelId =
+                        ''
+
+                    slackTs =
+                        ''
+
+                    eventKey =
+                        $line
+                }
+
+
+            Add-Content `
+                -LiteralPath $script:LedgerPath `
+                -Value (
+                    $entry |
+                    ConvertTo-Json -Compress
+                ) `
+                -Encoding UTF8
+
+
+            # Prevent endless ledger growth.
+            $ledgerInfo =
+                Get-Item `
+                    -LiteralPath $script:LedgerPath `
+                    -ErrorAction SilentlyContinue
+
+
+            if(
+                $ledgerInfo -and
+                $ledgerInfo.Length -gt 5MB
+            ){
+
+                $tail =
+                    @(
+                        Get-Content `
+                            -LiteralPath $script:LedgerPath `
+                            -Tail 5000 `
+                            -Encoding UTF8
+                    )
+
+
+                $temp =
+                    $script:LedgerPath +
+                    '.trim'
+
+
+                $tail |
+                    Set-Content `
+                        -LiteralPath $temp `
+                        -Encoding UTF8
+
+
+                Move-Item `
+                    -LiteralPath $temp `
+                    -Destination $script:LedgerPath `
+                    -Force
+            }
+        }
+        catch {
+
+            # History failure must never affect audio.
+        }
+    }
 }
 
 function Load-Config {

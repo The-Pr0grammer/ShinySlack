@@ -195,6 +195,57 @@
 .channelName.deepLinkable:hover{
   text-decoration:underline;
 }
+
+/* SHINY-HISTORY-DEEPLINK-CSS-V1 */
+
+.channelActions button.deepLinked{
+  color:#54e39a;
+  border-color:#28543d;
+  background:#0d1d17;
+}
+
+.channelName.deepLinkable{
+  cursor:pointer;
+}
+
+.channelName.deepLinkable:hover{
+  text-decoration:underline;
+}
+
+.historyRecoveryRow{
+  margin-top:12px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:10px 12px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:#0b0f17;
+}
+
+.historyRecoveryMeta{
+  min-width:0;
+  flex:1;
+}
+
+.historyRecoveryLabel{
+  font-size:10px;
+  font-weight:700;
+  letter-spacing:.09em;
+  color:var(--muted);
+}
+
+#historyRecoveryStatus{
+  margin-top:3px;
+  font-size:12px;
+  color:var(--muted);
+}
+
+.historyRecoveryActions{
+  display:flex;
+  gap:8px;
+}
 </style>
 </head>
 <body>
@@ -311,6 +362,28 @@
         <input id="alertAutoDismiss" type="checkbox">
         Auto-dismiss floating alerts after 15 seconds
       </label>
+    </div>
+    <!-- SHINY-HISTORY-RECOVERY-HTML-V1 -->
+    <div class="historyRecoveryRow">
+
+      <div class="historyRecoveryMeta">
+        <div class="historyRecoveryLabel">
+          OFFLINE RECOVERY
+        </div>
+        <div id="historyRecoveryStatus">
+          Not connected
+        </div>
+      </div>
+
+      <div class="historyRecoveryActions">
+        <button id="historyConnect">
+          Connect History
+        </button>
+        <button id="historyBackfill">
+          Backfill Now
+        </button>
+      </div>
+
     </div>
     <div id="activityFeed" class="activityFeed" style="margin-top:14px">
       <div class="activityEmpty">No Slack notifications yet.</div>
@@ -907,6 +980,378 @@ async function configureChannelDeepLink(route){
   }
 }
 
+
+/* SHINY-HISTORY-DEEPLINK-JS-V1 */
+
+window.__shinyDeepLinks=
+  window.__shinyDeepLinks||{};
+
+window.__shinyWorkspaces=
+  window.__shinyWorkspaces||[];
+
+
+window.openShinySlackChannel=
+  async function(channel){
+
+    const key=
+      String(channel||'')
+        .trim()
+        .replace(/^#/,'');
+
+
+    try{
+
+      await api(
+        '/api/channel/open',
+        {
+          method:'POST',
+          headers:{
+            'Content-Type':'application/json'
+          },
+          body:JSON.stringify({
+            channel:key
+          })
+        }
+      );
+    }
+    catch(e){
+
+      show(
+        false,
+        e.message
+      );
+    }
+  };
+
+
+async function configureNativeChannelLink(route){
+
+  const current=
+    route.linked
+      ? route.channelId
+      : 'not linked';
+
+
+  const channelId=
+    prompt(
+      'Channel ID for #'+route.channel+
+      '\n\nCurrent: '+current+
+      '\n\nExample: CXXXXXXXXXX'+
+      '\n\nLeave blank to unlink.'
+    );
+
+
+  if(channelId===null){
+    return;
+  }
+
+
+  let teamId='';
+
+  const workspaces=
+    window.__shinyWorkspaces||[];
+
+
+  if(
+    channelId.trim() &&
+    workspaces.length===1
+  ){
+
+    teamId=
+      workspaces[0].teamId;
+  }
+  else if(
+    channelId.trim() &&
+    workspaces.length>1
+  ){
+
+    const choices=
+      workspaces
+        .map(
+          w=>
+            w.name+
+            ' = '+
+            w.teamId
+        )
+        .join('\n');
+
+
+    teamId=
+      prompt(
+        'Choose workspace ID:\n\n'+
+        choices,
+        route.team||
+        workspaces[0].teamId
+      )||'';
+  }
+
+
+  try{
+
+    const result=
+      await api(
+        '/api/channel/deeplink',
+        {
+          method:'POST',
+          headers:{
+            'Content-Type':'application/json'
+          },
+          body:JSON.stringify({
+            channel:route.channel,
+            channelId:channelId.trim(),
+            teamId
+          })
+        }
+      );
+
+
+    if(result.linked){
+
+      show(
+        true,
+        '#'+route.channel+
+        ' native deep link saved.'
+      );
+    }
+    else{
+
+      show(
+        true,
+        '#'+route.channel+
+        ' deep link removed.'
+      );
+    }
+
+
+    await status();
+  }
+  catch(e){
+
+    show(
+      false,
+      e.message
+    );
+  }
+}
+
+
+function renderHistoryBackfill(h){
+
+  const statusEl=
+    $('historyRecoveryStatus');
+
+  const connect=
+    $('historyConnect');
+
+  const backfill=
+    $('historyBackfill');
+
+
+  if(!statusEl){
+    return;
+  }
+
+
+  if(!h||!h.connected){
+
+    statusEl.textContent=
+      'Not connected · live alerts only';
+
+    if(connect){
+      connect.textContent=
+        'Connect History';
+    }
+
+    if(backfill){
+      backfill.disabled=
+        true;
+    }
+
+    return;
+  }
+
+
+  let text=
+    'Connected';
+
+  if(h.teamName){
+    text+=' · '+h.teamName;
+  }
+
+  if(h.recoveredLastRun){
+    text+=
+      ' · recovered '+
+      h.recoveredLastRun;
+  }
+
+  if(h.lastError){
+    text+=
+      ' · '+h.lastError;
+  }
+
+
+  statusEl.textContent=
+    text;
+
+
+  if(connect){
+    connect.textContent=
+      'Disconnect';
+  }
+
+
+  if(backfill){
+    backfill.disabled=
+      false;
+  }
+}
+
+
+const historyConnect=
+  $('historyConnect');
+
+
+if(historyConnect){
+
+  historyConnect.onclick=
+    async()=>{
+
+      const s=
+        await api(
+          '/api/status'
+        );
+
+
+      const h=
+        s.historyBackfill||{};
+
+
+      if(h.connected){
+
+        if(
+          !confirm(
+            'Disconnect Slack history recovery?'
+          )
+        ){
+          return;
+        }
+
+
+        await api(
+          '/api/history/disconnect',
+          {
+            method:'POST'
+          }
+        );
+
+
+        await status();
+        return;
+      }
+
+
+      const token=
+        prompt(
+          'Paste the User OAuth Token for your ShinySlack internal Slack app.\n\nThe token is DPAPI-encrypted for this Windows account and is never shown in Activity.'
+        );
+
+
+      if(!token){
+        return;
+      }
+
+
+      try{
+
+        const result=
+          await api(
+            '/api/history/connect',
+            {
+              method:'POST',
+              headers:{
+                'Content-Type':'application/json'
+              },
+              body:JSON.stringify({
+                token:token.trim()
+              })
+            }
+          );
+
+
+        show(
+          true,
+          'History connected: '+
+          result.teamName
+        );
+
+
+        await status();
+      }
+      catch(e){
+
+        show(
+          false,
+          e.message
+        );
+      }
+    };
+}
+
+
+const historyBackfill=
+  $('historyBackfill');
+
+
+if(historyBackfill){
+
+  historyBackfill.onclick=
+    async()=>{
+
+      historyBackfill.disabled=
+        true;
+
+
+      try{
+
+        await api(
+          '/api/history/backfill',
+          {
+            method:'POST'
+          }
+        );
+
+
+        show(
+          true,
+          'Slack history recovery started.'
+        );
+
+
+        setTimeout(
+          status,
+          2500
+        );
+      }
+      catch(e){
+
+        show(
+          false,
+          e.message
+        );
+      }
+      finally{
+
+        setTimeout(
+          ()=>{
+            historyBackfill.disabled=
+              false;
+          },
+          2500
+        );
+      }
+    };
+}
+
 function normalizeChannel(v){
   return (v||'').trim().replace(/^#/,'');
 }
@@ -1029,6 +1474,9 @@ function renderChannelAudio(s){
   window.__shinyDeepLinks=
     c.deepLinks||{};
 
+  window.__shinyWorkspaces=
+    c.workspaces||[];
+
   const router=$('channelRouter');
 
   router.textContent=
@@ -1062,9 +1510,7 @@ function renderChannelAudio(s){
   if(!routes.length){
 
     const empty=
-      document.createElement(
-        'div'
-      );
+      document.createElement('div');
 
     empty.className=
       'channelEmpty';
@@ -1072,9 +1518,7 @@ function renderChannelAudio(s){
     empty.textContent=
       'No channel routes configured.';
 
-    box.appendChild(
-      empty
-    );
+    box.appendChild(empty);
 
     return;
   }
@@ -1083,18 +1527,14 @@ function renderChannelAudio(s){
   routes.forEach(r=>{
 
     const row=
-      document.createElement(
-        'div'
-      );
+      document.createElement('div');
 
     row.className=
       'channelRoute';
 
 
     const channel=
-      document.createElement(
-        'div'
-      );
+      document.createElement('div');
 
     channel.className=
       'channelName deepLinkable';
@@ -1104,7 +1544,7 @@ function renderChannelAudio(s){
 
     channel.title=
       r.linked
-        ? 'Open linked Slack channel'
+        ? 'Open exact Slack channel'
         : 'Open Slack';
 
     channel.onclick=
@@ -1116,9 +1556,7 @@ function renderChannelAudio(s){
 
 
     const sound=
-      document.createElement(
-        'div'
-      );
+      document.createElement('div');
 
     sound.className=
       'channelSound';
@@ -1129,18 +1567,14 @@ function renderChannelAudio(s){
 
 
     const actions=
-      document.createElement(
-        'div'
-      );
+      document.createElement('div');
 
     actions.className=
       'channelActions';
 
 
     const change=
-      document.createElement(
-        'button'
-      );
+      document.createElement('button');
 
     change.textContent=
       'Change';
@@ -1158,9 +1592,7 @@ function renderChannelAudio(s){
 
 
     const link=
-      document.createElement(
-        'button'
-      );
+      document.createElement('button');
 
     link.textContent=
       r.linked
@@ -1178,25 +1610,18 @@ function renderChannelAudio(s){
         '/'+
         r.channelId;
     }
-    else{
-
-      link.title=
-        'Link this route to an exact Slack channel';
-    }
 
 
     link.onclick=
       ()=>{
-        configureChannelDeepLink(
+        configureNativeChannelLink(
           r
         );
       };
 
 
     const remove=
-      document.createElement(
-        'button'
-      );
+      document.createElement('button');
 
     remove.textContent=
       'Remove';
@@ -1209,35 +1634,15 @@ function renderChannelAudio(s){
       };
 
 
-    actions.appendChild(
-      change
-    );
+    actions.appendChild(change);
+    actions.appendChild(link);
+    actions.appendChild(remove);
 
-    actions.appendChild(
-      link
-    );
+    row.appendChild(channel);
+    row.appendChild(sound);
+    row.appendChild(actions);
 
-    actions.appendChild(
-      remove
-    );
-
-
-    row.appendChild(
-      channel
-    );
-
-    row.appendChild(
-      sound
-    );
-
-    row.appendChild(
-      actions
-    );
-
-
-    box.appendChild(
-      row
-    );
+    box.appendChild(row);
   });
 }
 const activityColors=[
@@ -1385,6 +1790,7 @@ async function status(){
     cls($('health'),(s.health==='Custom'||s.health==='ConfiguredDeferred')?'good':((s.health==='Stock'||s.health==='Deferred')?'warn':'bad'));
     $('watcher').textContent=s.installed?(s.watcherRunning?'Watching':'Not watching'):'Not installed'; cls($('watcher'),s.watcherRunning?'good':'warn'); $('watcher').title=s.watcherDetail||'';
     renderActivity(s.notifications||[]);
+    renderHistoryBackfill(s.historyBackfill||{});
 
     if(
       $('alertAutoDismiss') &&
