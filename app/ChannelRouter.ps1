@@ -67,19 +67,66 @@ function Get-ToastMessagePreview {
         [string[]]$Exclude = @()
     )
 
-    $found = @()
-
     try {
-        $condition =
+        $messageCondition =
             New-Object System.Windows.Automation.PropertyCondition(
-                [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-                [System.Windows.Automation.ControlType]::Text
+                [System.Windows.Automation.AutomationElement]::ClassNameProperty,
+                "Message"
             )
 
-        $elements = $desktop.FindAll(
+        $containers = $desktop.FindAll(
             [System.Windows.Automation.TreeScope]::Descendants,
-            $condition
+            $messageCondition
         )
+
+        $best = $null
+        $bestDistance = 999999
+
+        foreach($m in $containers) {
+
+            try {
+                $r = $m.Current.BoundingRectangle
+
+                if(
+                    $r.Width -le 0 -or
+                    $r.Height -le 0
+                ) {
+                    continue
+                }
+
+                $horizontal =
+                    ($r.X -le ($Anchor.X + $Anchor.W + 120)) -and
+                    (($r.X + $r.Width) -ge ($Anchor.X - 120))
+
+                $vertical =
+                    $r.Y -ge ($Anchor.Y - 50) -and
+                    $r.Y -le ($Anchor.Y + 260)
+
+                if(!$horizontal -or !$vertical) {
+                    continue
+                }
+
+                $distance =
+                    [Math]::Abs($r.Y - $Anchor.Y)
+
+                if($distance -lt $bestDistance) {
+                    $best = $m
+                    $bestDistance = $distance
+                }
+            }
+            catch {}
+        }
+
+        if($null -eq $best) {
+            return ''
+        }
+
+        $elements = $best.FindAll(
+            [System.Windows.Automation.TreeScope]::Descendants,
+            [System.Windows.Automation.Condition]::TrueCondition
+        )
+
+        $items = @()
 
         foreach($e in $elements) {
 
@@ -91,15 +138,6 @@ function Get-ToastMessagePreview {
                 }
 
                 $name = $name.Trim()
-
-                if(
-                    $name -eq 'Slack' -or
-                    $name -eq 'Close' -or
-                    $name -eq 'Reply' -or
-                    $name -eq 'Mark as read'
-                ) {
-                    continue
-                }
 
                 $skip = $false
 
@@ -121,61 +159,56 @@ function Get-ToastMessagePreview {
                     continue
                 }
 
-                $rect = $e.Current.BoundingRectangle
-
                 if(
-                    $rect.Width -le 0 -or
-                    $rect.Height -le 0
+                    $name -eq 'Slack' -or
+                    $name -eq 'Close' -or
+                    $name -eq 'Reply' -or
+                    $name -eq 'Mark as read'
                 ) {
                     continue
                 }
 
-                $horizontal =
-                    ($rect.X -le ($Anchor.X + $Anchor.W + 100)) -and
-                    (($rect.X + $rect.Width) -ge ($Anchor.X - 100))
+                $r = $e.Current.BoundingRectangle
 
-                $vertical =
-                    $rect.Y -ge ($Anchor.Y - 15) -and
-                    $rect.Y -le ($Anchor.Y + 320)
-
-                if(!$horizontal -or !$vertical) {
-                    continue
-                }
-
-                $found += [pscustomobject]@{
+                $items += [pscustomobject]@{
                     Text = $name
-                    X = [double]$rect.X
-                    Y = [double]$rect.Y
+                    Y = [double]$r.Y
+                    X = [double]$r.X
                 }
             }
             catch {}
         }
-    }
-    catch {}
 
-    $ordered = @(
-        $found |
-        Sort-Object Y,X
-    )
+        $ordered = @(
+            $items |
+            Sort-Object Y,X
+        )
 
-    $unique = @()
+        $unique = @()
 
-    foreach($item in $ordered) {
+        foreach($item in $ordered) {
 
-        if($unique -notcontains $item.Text) {
-            $unique += $item.Text
+            if($unique -notcontains $item.Text) {
+                $unique += $item.Text
+            }
         }
+
+        $preview = ($unique -join '  ').Trim()
+
+        if($preview.Length -gt 600) {
+            $preview =
+                $preview.Substring(0,600) + '...'
+        }
+
+        return $preview
     }
+    catch {
+        Write-RouterLog `
+            "MESSAGE_CAPTURE_ERROR $($_.Exception.Message)"
 
-    $message = ($unique -join '  ').Trim()
-
-    if($message.Length -gt 600) {
-        $message = $message.Substring(0,600) + '...'
+        return ''
     }
-
-    return $message
 }
-
 
 function Write-RecentNotification {
     param(
@@ -680,7 +713,10 @@ Write-RouterLog "START build=$script:Build mode=channel-first"
 # Channel elements own normal channel notifications.
 # OpenTeam is only a fallback for notifications that expose no channel.
 $activeChannels = @{}
-$recentChannelFires = @{}
+
+# Dedupe actual toast instances, not entire channels.
+# This allows multiple #Slackbot notifications stacked at once.
+$recentToastFires = @()
 
 # Remember where/when a channel toast fired so the slower
 # OpenTeam fallback cannot replay the same notification later.
@@ -690,7 +726,7 @@ $pendingTeams = @{}
 $activeTeams = @{}
 $recentFallbackFires = @{}
 
-$channelDedupeMilliseconds = 300
+$toastDedupeMilliseconds = 600
 $fallbackMilliseconds = 650
 
 $lastBeat = Get-Date
@@ -728,22 +764,50 @@ while($true) {
 
             $activeChannels[$elementKey] = $true
 
-            # Slack can rebuild the accessibility element with a new
-            # RuntimeId while the same toast is still visible.
-            # Suppress only extremely-close repeats for the same channel.
             $channelKey = [string]$c.Channel
 
-            $last = $recentChannelFires[$channelKey]
+            # Slack may rebuild the SAME toast with a new RuntimeId.
+            # Only suppress it when channel AND screen position match.
+            # Separate stacked toasts have different Y positions and
+            # therefore each get their own sound.
+            $duplicateToast = $false
 
-            if(
-                $last -and
-                (($now - $last).TotalMilliseconds -lt $channelDedupeMilliseconds)
-            ) {
-                Write-RouterLog "DEDUPE channel=#$channelKey"
+            foreach($f in $recentToastFires) {
+
+                $age =
+                    ($now - $f.Time).TotalMilliseconds
+
+                $samePosition =
+                    [Math]::Abs($f.X - $c.X) -lt 35 -and
+                    [Math]::Abs($f.Y - $c.Y) -lt 35
+
+                if(
+                    $f.Channel -eq $channelKey -and
+                    $age -lt $toastDedupeMilliseconds -and
+                    $samePosition
+                ) {
+                    $duplicateToast = $true
+                    break
+                }
+            }
+
+            if($duplicateToast) {
+                Write-RouterLog (
+                    "DEDUPE channel=#{0} x={1} y={2}" -f `
+                    $channelKey,
+                    [int]$c.X,
+                    [int]$c.Y
+                )
+
                 continue
             }
 
-            $recentChannelFires[$channelKey] = $now
+            $recentToastFires += [pscustomobject]@{
+                Time = $now
+                Channel = $channelKey
+                X = [double]$c.X
+                Y = [double]$c.Y
+            }
 
             $recentPrimaryToasts += [pscustomobject]@{
                 Time = $now
@@ -799,15 +863,13 @@ while($true) {
             }
         }
 
-        # Keep recent-fire memory tiny.
-        foreach($key in @($recentChannelFires.Keys)) {
-
-            if(
-                (($now - $recentChannelFires[$key]).TotalSeconds) -gt 3
-            ) {
-                $recentChannelFires.Remove($key)
+        # Keep recent toast-instance memory tiny.
+        $recentToastFires = @(
+            $recentToastFires |
+            Where-Object {
+                (($now - $_.Time).TotalSeconds) -le 3
             }
-        }
+        )
 
 
         $recentPrimaryToasts = @(
