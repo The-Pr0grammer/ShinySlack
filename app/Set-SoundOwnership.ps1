@@ -308,20 +308,43 @@ function Write-Region {
 }
 
 function Capture-And-Silence {
+
+    # CACHE-CAPTURE-AFTER-SLACK-STOP-V1
+    #
+    # Important ordering:
+    #   1. validate saved target metadata
+    #   2. stop Slack
+    #   3. wait until the cache region can be read
+    #   4. capture exact pre-Router bytes
+    #   5. write silence
+    #   6. verify
+    #   7. relaunch Slack
+    #
+    # We never attempt the rollback capture while Slack is still
+    # holding its Chromium cache file.
+
     if(!(Test-Path $statePath)){
         throw 'Legacy sound state is missing. Repair the current sound first.'
     }
 
-    $state=
+
+    $state =
         Get-Content `
             $statePath `
             -Raw `
             -Encoding UTF8 |
         ConvertFrom-Json
 
-    $file=[string]$state.File
-    $offset=[long]$state.Offset
-    $slot=[int]$state.SlotLength
+
+    $file =
+        [string]$state.File
+
+    $offset =
+        [long]$state.Offset
+
+    $slot =
+        [int]$state.SlotLength
+
 
     if(
         !$file -or
@@ -331,84 +354,203 @@ function Capture-And-Silence {
         throw 'Saved Slack sound cache region is unavailable.'
     }
 
-    $current=
-        Read-RegionBytes `
-            -File $file `
-            -Offset $offset `
-            -Length $slot
 
-    if(!$current){
-        throw 'Could not read the current Slack sound cache region.'
-    }
+    $silent =
+        Join-Path `
+            $root `
+            'silent-slack.mp3'
 
-    [IO.File]::WriteAllBytes(
-        $rollbackBytes,
-        [byte[]]$current
-    )
-
-    Write-JsonAtomic `
-        $rollbackMeta `
-        ([ordered]@{
-            file=$file
-            offset=$offset
-            length=$slot
-            hash=(Get-Sha256Hex $current)
-            saved=(Get-Date).ToString('o')
-        })
-
-    $silent=Join-Path $root 'silent-slack.mp3'
 
     if(!(Test-Path $silent)){
         throw 'silent-slack.mp3 is missing.'
     }
 
-    $silentBytes=[IO.File]::ReadAllBytes($silent)
+
+    $silentBytes =
+        [IO.File]::ReadAllBytes(
+            $silent
+        )
+
 
     if($silentBytes.Length -gt $slot){
         throw 'Silent sound is larger than the cache slot.'
     }
 
-    $padded=
+
+    $padded =
         New-PaddedCustomBytes `
             -CustomBytes $silentBytes `
             -SlotLength $slot
 
-    $wasRunning=
+
+    $wasRunning =
         [bool](
             Get-Process `
                 slack `
                 -ErrorAction SilentlyContinue
         )
 
-    $exe=Get-SlackExePath
+
+    $exe =
+        Get-SlackExePath
+
 
     if($wasRunning){
-        Stop-SlackForPatch | Out-Null
-        Start-Sleep -Milliseconds 1200
+
+        Stop-SlackForPatch |
+        Out-Null
+
+
+        Start-Sleep `
+            -Milliseconds 1200
     }
 
+
     try{
+
+        # --------------------------------------------------------
+        # Capture exact rollback bytes only AFTER Slack has exited.
+        # Retry because Windows/AV may briefly retain the handle.
+        # --------------------------------------------------------
+
+        $current =
+            $null
+
+
+        $captureDeadline =
+            (Get-Date).AddSeconds(12)
+
+
+        $captureError =
+            $null
+
+
+        while(
+            (Get-Date) -lt
+            $captureDeadline
+        ){
+
+            try{
+
+                $current =
+                    Read-RegionBytes `
+                        -File $file `
+                        -Offset $offset `
+                        -Length $slot
+
+
+                if($current){
+                    break
+                }
+            }
+            catch [System.IO.IOException] {
+
+                $captureError =
+                    $_.Exception
+            }
+            catch [System.Management.Automation.MethodInvocationException] {
+
+                if(
+                    $_.Exception.InnerException -is
+                    [System.IO.IOException]
+                ){
+
+                    $captureError =
+                        $_.Exception.InnerException
+                }
+                else {
+
+                    throw
+                }
+            }
+
+
+            Start-Sleep `
+                -Milliseconds 250
+        }
+
+
+        if(!$current){
+
+            $detail =
+                if($captureError){
+                    $captureError.Message
+                }
+                else {
+                    'cache region could not be read'
+                }
+
+
+            throw (
+                'Slack cache remained unavailable for rollback capture ' +
+                'after Slack shutdown. No cache write was attempted. ' +
+                'Last error: ' +
+                $detail
+            )
+        }
+
+
+        [IO.File]::WriteAllBytes(
+            $rollbackBytes,
+            [byte[]]$current
+        )
+
+
+        Write-JsonAtomic `
+            $rollbackMeta `
+            ([ordered]@{
+                file =
+                    $file
+
+                offset =
+                    $offset
+
+                length =
+                    $slot
+
+                hash =
+                    (Get-Sha256Hex $current)
+
+                saved =
+                    (Get-Date).ToString('o')
+            })
+
+
+        # --------------------------------------------------------
+        # Now silence the same verified region.
+        # Write-Region has its own bounded exclusive-lock retry.
+        # --------------------------------------------------------
+
         Write-Region `
             -File $file `
             -Offset $offset `
             -Bytes ([byte[]]$padded)
 
-        $verify=
+
+        $verify =
             Read-RegionBytes `
                 -File $file `
                 -Offset $offset `
                 -Length $slot
+
 
         if(
             !$verify -or
             (Get-Sha256Hex $verify) -ne
             (Get-Sha256Hex $padded)
         ){
-            throw 'Slack silence verification failed.'
+
+            throw (
+                'Slack silence verification failed.'
+            )
         }
-    }finally{
+    }
+    finally{
+
         if($wasRunning){
-            Start-SlackAfterPatch -ExePath $exe
+
+            Start-SlackAfterPatch `
+                -ExePath $exe
         }
     }
 }
