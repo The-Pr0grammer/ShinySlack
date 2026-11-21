@@ -212,7 +212,20 @@ function Get-LowLatencyPlayer {
             -LiteralPath $full
 
 
-    $volume =
+    # SHINY-PERCEPTUAL-VOLUME-V2
+    #
+    # UI volume remains 0.00 - 1.00, but playback uses
+    # a squared gain curve:
+    #
+    # 100% -> 1.0000 gain
+    #  75% -> 0.5625 gain
+    #  50% -> 0.2500 gain
+    #  25% -> 0.0625 gain
+    #
+    # This gives the slider a much more useful perceived
+    # loudness range than linear amplitude.
+
+    $uiVolume =
         [Math]::Max(
             0.0,
             [Math]::Min(
@@ -222,18 +235,39 @@ function Get-LowLatencyPlayer {
         )
 
 
+    $effectiveGain =
+        [Math]::Pow(
+            $uiVolume,
+            2
+        )
+
+
     $volumeKey =
-        $volume.ToString(
+        $uiVolume.ToString(
             '0.00',
             [Globalization.CultureInfo]::InvariantCulture
         )
 
 
-    # Different volume = different preloaded player.
+    $gainKey =
+        $effectiveGain.ToString(
+            '0.0000',
+            [Globalization.CultureInfo]::InvariantCulture
+        )
+
+
+    $curveKey =
+        'p2'
+
+
+    # Curve version is part of the player key so an existing
+    # player from the old linear-volume implementation cannot
+    # be reused.
     $key =
-        "{0}|{1}|{2}" -f `
+        "{0}|{1}|{2}|{3}" -f `
         $full,
         $item.LastWriteTimeUtc.Ticks,
+        $curveKey,
         $volumeKey
 
 
@@ -261,13 +295,24 @@ function Get-LowLatencyPlayer {
         )
 
 
+    $gainFileKey =
+        $gainKey.Replace(
+            '.',
+            '_'
+        )
+
+
+    # New filename namespace prevents the old linear WAV cache
+    # from being reused at the same displayed percentage.
     $wav =
         Join-Path `
             $script:WaveCacheDir `
             (
-                "{0}-v{1}.wav" -f
+                "{0}-{1}-v{2}-g{3}.wav" -f
                 $hash,
-                $volumeFileKey
+                $curveKey,
+                $volumeFileKey,
+                $gainFileKey
             )
 
 
@@ -300,7 +345,7 @@ function Get-LowLatencyPlayer {
             -vn `
             -ac 2 `
             -ar 44100 `
-            -filter:a ("volume={0}" -f $volumeKey) `
+            -filter:a ("volume={0}" -f $gainKey) `
             -c:a pcm_s16le `
             $wav
 
