@@ -29,6 +29,83 @@ function Write-WebException {
         Write-WebDiag ("FULL: " + ($ErrorRecord.ToString() -replace "`r?`n", ' | ')) $RequestId
     } catch {}
 }
+
+function Get-PersistentAlertSettings {
+
+    $path =
+        Join-Path $script:Root 'persistent-alerts.json'
+
+    $enabled = $true
+
+
+    if(Test-Path -LiteralPath $path) {
+
+        try {
+
+            $cfg =
+                Get-Content `
+                    -LiteralPath $path `
+                    -Raw `
+                    -Encoding UTF8 `
+                    -ErrorAction Stop |
+                ConvertFrom-Json
+
+
+            if($null -ne $cfg.autoDismiss) {
+
+                $enabled =
+                    [bool]$cfg.autoDismiss
+            }
+        }
+        catch {}
+    }
+
+
+    [pscustomobject]@{
+        autoDismiss = $enabled
+        autoDismissSeconds = 15
+    }
+}
+
+
+function Set-PersistentAlertSettings {
+
+    param(
+        [bool]$AutoDismiss
+    )
+
+
+    $path =
+        Join-Path $script:Root 'persistent-alerts.json'
+
+    $tmp =
+        $path + '.tmp'
+
+
+    $json =
+        [pscustomobject]@{
+            autoDismiss = $AutoDismiss
+            autoDismissSeconds = 15
+        } |
+        ConvertTo-Json
+
+
+    [IO.File]::WriteAllText(
+        $tmp,
+        $json,
+        (New-Object System.Text.UTF8Encoding($false))
+    )
+
+
+    Move-Item `
+        -LiteralPath $tmp `
+        -Destination $path `
+        -Force
+
+
+    Get-PersistentAlertSettings
+}
+
 Write-WebDiag "ShinySlack web backend booting. Build=$script:Build PID=$PID SourceDir=$script:SourceDir"
 
 function Sync-InstalledShinySlackAgent {
@@ -132,7 +209,7 @@ function Sync-InstalledShinySlackAgent {
 
 Sync-InstalledShinySlackAgent
 
-$mutex = New-Object System.Threading.Mutex -ArgumentList $false, 'Local\ShinySlackWebServer'
+$mutex = New-Object System.Threading.Mutex -ArgumentList $false, 'Local\ShinySlackWebServerV16PA4'
 $hasMutex = $false
 try { $hasMutex = $mutex.WaitOne(0,$false) } catch [Threading.AbandonedMutexException] { $hasMutex = $true }
 if (!$hasMutex) {
@@ -150,57 +227,250 @@ function Send-Response {
 }
 function Json-Response { param($Client,$Object,[int]$Status=200); Send-Response $Client $Status 'application/json; charset=utf-8' ($Object|ConvertTo-Json -Depth 8 -Compress) }
 function Read-Request {
-    param($Client,[string]$RequestId='REQ')
+    param(
+        $Client,
+        [string]$RequestId='REQ'
+    )
+
+    $Client.NoDelay = $true
     $Client.ReceiveTimeout = 3000
     $Client.SendTimeout = 5000
-    $stream=$Client.GetStream(); $stream.ReadTimeout = 3000; $stream.WriteTimeout = 5000
 
-    # Chromium may create speculative localhost sockets without sending HTTP.
-    # Drop them quickly so they cannot starve this single-threaded diagnostic server.
-    $waitStart=Get-Date
-    while($Client.Available -le 0){
-        if(((Get-Date)-$waitStart).TotalMilliseconds -ge 750){
-            throw 'Client connected but sent no request bytes within 750 ms (likely speculative browser connection).'
+    $stream = $Client.GetStream()
+
+    # --------------------------------------------------------
+    # FIRST BYTE
+    #
+    # Firefox/Chromium may open speculative localhost sockets
+    # that never actually send an HTTP request.
+    #
+    # This server is single-threaded, so those connections
+    # must be discarded very quickly.
+    # --------------------------------------------------------
+
+    $stream.ReadTimeout = 150
+
+    try {
+        $firstByte = $stream.ReadByte()
+    }
+    catch {
+        throw 'Client connected but sent no request bytes within 150 ms.'
+    }
+
+    if($firstByte -lt 0) {
+        throw 'Client disconnected before sending an HTTP request.'
+    }
+
+
+    # Real request detected. Normal timeout from here forward.
+    $stream.ReadTimeout = 3000
+    $stream.WriteTimeout = 5000
+
+
+    $head =
+        New-Object System.IO.MemoryStream
+
+    $seq =
+        New-Object 'System.Collections.Generic.Queue[byte]'
+
+
+    $head.WriteByte(
+        [byte]$firstByte
+    )
+
+    $seq.Enqueue(
+        [byte]$firstByte
+    )
+
+
+    while($true) {
+
+        # Did the first byte somehow complete CRLFCRLF?
+        # Impossible for a valid HTTP request, but maintain
+        # one consistent queue algorithm.
+        if($seq.Count -eq 4) {
+
+            $a = $seq.ToArray()
+
+            if(
+                $a[0] -eq 13 -and
+                $a[1] -eq 10 -and
+                $a[2] -eq 13 -and
+                $a[3] -eq 10
+            ) {
+                break
+            }
         }
-        Start-Sleep -Milliseconds 20
-    }
-    Write-WebDiag "Request bytes available=$($Client.Available). Reading headers." $RequestId
 
-    $head=New-Object System.IO.MemoryStream
-    $seq=New-Object 'System.Collections.Generic.Queue[byte]'
-    while($true){
-        $v=$stream.ReadByte(); if($v -lt 0){break}
-        $head.WriteByte([byte]$v); $seq.Enqueue([byte]$v)
-        while($seq.Count -gt 4){$null=$seq.Dequeue()}
-        if($seq.Count -eq 4){$a=$seq.ToArray();if($a[0]-eq 13 -and $a[1]-eq 10 -and $a[2]-eq 13 -and $a[3]-eq 10){break}}
-        if($head.Length -gt 65536){throw 'Request headers too large.'}
-    }
-    $hs=[Text.Encoding]::ASCII.GetString($head.ToArray())
-    $lines=$hs -split "`r`n"
-    $first=$lines[0] -split ' '
-    if($first.Count -lt 2){throw 'Invalid request line.'}
-    $headers=@{}
-    if($lines.Count -gt 1){
-        foreach($line in $lines[1..($lines.Count-1)]){if($line -match '^([^:]+):\s*(.*)$'){$headers[$matches[1].ToLowerInvariant()]=$matches[2]}}
-    }
-    $len=0
-    if($headers.ContainsKey('content-length')){$len=[int]$headers['content-length']}
-    if($len -gt 10MB){throw "Request body too large: $len bytes."}
-    Write-WebDiag "Parsed $($first[0]) $($first[1]) Content-Length=$len" $RequestId
 
-    $bodyBytes=New-Object byte[] $len
-    $off=0
-    while($off -lt $len){
-        $n=$stream.Read($bodyBytes,$off,$len-$off)
-        if($n -le 0){break}
-        $off+=$n
-        if($len -ge 32768 -and ($off -eq $len -or ($off % 32768) -lt $n)){ Write-WebDiag "Body progress $off/$len bytes" $RequestId }
+        $v =
+            $stream.ReadByte()
+
+
+        if($v -lt 0) {
+            break
+        }
+
+
+        $head.WriteByte(
+            [byte]$v
+        )
+
+        $seq.Enqueue(
+            [byte]$v
+        )
+
+
+        while($seq.Count -gt 4) {
+            $null = $seq.Dequeue()
+        }
+
+
+        if($seq.Count -eq 4) {
+
+            $a =
+                $seq.ToArray()
+
+
+            if(
+                $a[0] -eq 13 -and
+                $a[1] -eq 10 -and
+                $a[2] -eq 13 -and
+                $a[3] -eq 10
+            ) {
+                break
+            }
+        }
+
+
+        if($head.Length -gt 65536) {
+            throw 'Request headers too large.'
+        }
     }
-    if($off -ne $len){ throw "Request body ended early: read $off of $len bytes." }
-    $body=if($len){[Text.Encoding]::UTF8.GetString($bodyBytes,0,$off)}else{''}
-    Write-WebDiag "Request fully read. BodyChars=$($body.Length)" $RequestId
-    [pscustomobject]@{Method=$first[0];Path=$first[1].Split('?')[0];Headers=$headers;Body=$body}
+
+
+    $hs =
+        [Text.Encoding]::ASCII.GetString(
+            $head.ToArray()
+        )
+
+
+    $lines =
+        $hs -split "`r`n"
+
+
+    $first =
+        $lines[0] -split ' '
+
+
+    if($first.Count -lt 2) {
+        throw 'Invalid request line.'
+    }
+
+
+    $headers = @{}
+
+
+    if($lines.Count -gt 1) {
+
+        foreach(
+            $line in
+            $lines[1..($lines.Count-1)]
+        ) {
+
+            if(
+                $line -match
+                '^([^:]+):\s*(.*)$'
+            ) {
+
+                $headers[
+                    $matches[1].ToLowerInvariant()
+                ] = $matches[2]
+            }
+        }
+    }
+
+
+    $len = 0
+
+
+    if(
+        $headers.ContainsKey(
+            'content-length'
+        )
+    ) {
+        $len =
+            [int]$headers['content-length']
+    }
+
+
+    if($len -gt 10MB) {
+        throw "Request body too large: $len bytes."
+    }
+
+
+    Write-WebDiag `
+        "Parsed $($first[0]) $($first[1]) Content-Length=$len" `
+        $RequestId
+
+
+    $bodyBytes =
+        New-Object byte[] $len
+
+
+    $off = 0
+
+
+    while($off -lt $len) {
+
+        $n =
+            $stream.Read(
+                $bodyBytes,
+                $off,
+                $len-$off
+            )
+
+
+        if($n -le 0) {
+            break
+        }
+
+
+        $off += $n
+    }
+
+
+    if($off -ne $len) {
+
+        throw (
+            "Request body ended early: read " +
+            "$off of $len bytes."
+        )
+    }
+
+
+    $body =
+        if($len) {
+
+            [Text.Encoding]::UTF8.GetString(
+                $bodyBytes,
+                0,
+                $off
+            )
+        }
+        else {
+            ''
+        }
+
+
+    [pscustomobject]@{
+        Method  = $first[0]
+        Path    = $first[1].Split('?')[0]
+        Headers = $headers
+        Body    = $body
+    }
 }
+
 function Get-StatusObject {
     param([string]$RequestId='STATUS')
     Write-WebDiag 'STATUS 1/8: checking install marker.' $RequestId
@@ -239,20 +509,53 @@ function Get-StatusObject {
         Write-WebDiag 'STATUS 4/8: not installed; no health probe.' $RequestId
     }
 
-    Write-WebDiag 'STATUS 5/8: checking watcher heartbeat/process.' $RequestId
-    $watcher=$false
-    $watcherDetail=''
+    Write-WebDiag 'STATUS 5/8: checking watcher heartbeat only.' $RequestId
+
+    $watcher = $false
+    $watcherDetail = ''
+    $hb = $null
+
     try {
+
         . (Join-Path $script:Root 'ShinySlack.Common.ps1')
-        $hb = Get-ShinyWatcherHeartbeat
-        if($hb -and $hb.Fresh -and [string]$hb.Data.build -eq $script:Build){
-            $watcher=$true
-            $watcherDetail="$($hb.Data.build) heartbeat $($hb.AgeSeconds)s ago; $($hb.Data.state)"
-        } else {
-            $watcher=Test-ShinyWatcherRunning
-            if($hb){$watcherDetail="stale heartbeat $($hb.AgeSeconds)s"}
+
+        $hb =
+            Get-ShinyWatcherHeartbeat
+
+
+        if(
+            $hb -and
+            $hb.Fresh
+        ) {
+
+            $watcher = $true
+
+            $watcherDetail =
+                "$($hb.Data.build) heartbeat $($hb.AgeSeconds)s ago; $($hb.Data.state)"
         }
-    } catch { Write-WebException $_ $RequestId 'Status watcher check failed' }
+        elseif($hb) {
+
+            $watcher = $false
+
+            $watcherDetail =
+                "stale heartbeat $($hb.AgeSeconds)s"
+        }
+        else {
+
+            $watcher = $false
+            $watcherDetail = 'no heartbeat'
+        }
+    }
+    catch {
+
+        $watcher = $false
+        $watcherDetail = 'heartbeat unavailable'
+
+        Write-WebException `
+            $_ `
+            $RequestId `
+            'Status watcher heartbeat check failed'
+    }
 
     Write-WebDiag 'STATUS 6/8: reading activity log tail newest-first.' $RequestId
     $log=''
@@ -286,7 +589,7 @@ function Get-StatusObject {
             $routerLines = @(
                 Get-Content `
                     -LiteralPath $routerLog `
-                    -Tail 150 `
+                    -Tail 8000 `
                     -Encoding UTF8
             )
 
@@ -364,6 +667,7 @@ function Get-StatusObject {
                         message = $description
                         sound   = $sound
                         backend = $backend
+                        eventKey = $line
                     }
                 }
             }
@@ -386,14 +690,46 @@ function Get-StatusObject {
     Write-WebDiag 'STATUS 7/8: checking ffmpeg.' $RequestId
     $ffmpeg=[bool](Get-Command ffmpeg -ErrorAction SilentlyContinue)
 
-    Write-WebDiag 'STATUS 8/8: status object complete.' $RequestId
-    $agentBuild=''
-    if($hb -and $hb.Data -and $hb.Data.build){ $agentBuild=[string]$hb.Data.build }
-    [pscustomobject]@{
-        ok=$true; build=$script:Build; installed=$installed; slackRunning=$slackRunning;
-        cachePresent=$cachePresent; health=$health; watcherRunning=$watcher; watcherDetail=$watcherDetail;
-        ffmpeg=$ffmpeg; log=$log; notifications=@($notifications); agentBuild=$agentBuild; channelAudio=(Get-ChannelAudioStatus)
+    Write-WebDiag 'STATUS 8A: building channel-audio status.' $RequestId
+
+    $channelAudio =
+        Get-ChannelAudioStatus
+
+    Write-WebDiag 'STATUS 8B: channel-audio status complete.' $RequestId
+
+    $agentBuild = ''
+
+    if(
+        $hb -and
+        $hb.Data -and
+        $hb.Data.build
+    ) {
+        $agentBuild =
+            [string]$hb.Data.build
     }
+
+
+    $statusObject =
+        [pscustomobject]@{
+            ok             = $true
+            build          = $script:Build
+            installed      = $installed
+            slackRunning   = $slackRunning
+            cachePresent   = $cachePresent
+            health         = $health
+            watcherRunning = $watcher
+            watcherDetail  = $watcherDetail
+            ffmpeg         = $ffmpeg
+            log            = $log
+            notifications  = @($notifications)
+            agentBuild     = $agentBuild
+            channelAudio   = $channelAudio
+        }
+
+
+    Write-WebDiag 'STATUS 8/8: status object complete.' $RequestId
+
+    $statusObject
 }
 function Persist-WebFiles {
     if(!(Test-Path $script:Root)){New-Item -ItemType Directory -Path $script:Root -Force|Out-Null}
@@ -425,8 +761,16 @@ function Get-OperationObject {
 
 
 function Get-ChannelAudioStatus {
-    $configPath = Join-Path $script:Root 'channel-routes.json'
-    $routerLog  = Join-Path $script:Root 'channel-router.log'
+
+    $configPath =
+        Join-Path $script:Root 'channel-routes.json'
+
+    $routerLog =
+        Join-Path $script:Root 'channel-router.log'
+
+    $routerStdout =
+        Join-Path $script:Root 'channel-router.stdout.log'
+
 
     $routerRunning = $false
     $enabled = $true
@@ -434,66 +778,161 @@ function Get-ChannelAudioStatus {
     $routes = @()
     $lastDetected = ''
 
-    try {
-        $procs = @(
-            Get-CimInstance Win32_Process `
-                -Filter "Name='powershell.exe'" `
-                -ErrorAction SilentlyContinue |
-            Where-Object {
-                $_.CommandLine -and
-                $_.CommandLine -match 'ChannelRouter\.ps1'
+
+    # --------------------------------------------------------
+    # ROUTER STATUS
+    #
+    # Absolutely no process enumeration inside /api/status.
+    # --------------------------------------------------------
+
+    foreach($heartbeatPath in @(
+        $routerStdout,
+        $routerLog
+    )) {
+
+        if(Test-Path -LiteralPath $heartbeatPath) {
+
+            try {
+
+                $info =
+                    Get-Item `
+                        -LiteralPath $heartbeatPath `
+                        -ErrorAction Stop
+
+
+                $ageSeconds =
+                    (
+                        (Get-Date).ToUniversalTime() -
+                        $info.LastWriteTimeUtc
+                    ).TotalSeconds
+
+
+                # Five-minute grace avoids false "Stopped"
+                # caused by redirected stdout buffering.
+                if($ageSeconds -le 300) {
+
+                    $routerRunning = $true
+
+                    break
+                }
             }
-        )
-
-        $routerRunning = ($procs.Count -gt 0)
+            catch {}
+        }
     }
-    catch {}
 
-    if(Test-Path $configPath) {
+
+    # --------------------------------------------------------
+    # ROUTING CONFIG
+    # --------------------------------------------------------
+
+    if(Test-Path -LiteralPath $configPath) {
+
         try {
-            $cfg = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 |
+
+            $cfg =
+                Get-Content `
+                    -LiteralPath $configPath `
+                    -Raw `
+                    -Encoding UTF8 `
+                    -ErrorAction Stop |
                 ConvertFrom-Json
+
 
             if($null -ne $cfg.enabled) {
                 $enabled = [bool]$cfg.enabled
             }
 
+
             if($cfg.defaultSound) {
-                $defaultSound = Split-Path -Leaf ([string]$cfg.defaultSound)
+
+                $defaultSound =
+                    Split-Path `
+                        -Leaf `
+                        ([string]$cfg.defaultSound)
             }
+
 
             if($null -ne $cfg.routes) {
-                foreach($p in $cfg.routes.PSObject.Properties) {
-                    $routes += [pscustomobject]@{
-                        channel = [string]$p.Name
-                        sound   = Split-Path -Leaf ([string]$p.Value)
-                    }
+
+                foreach(
+                    $p in
+                    $cfg.routes.PSObject.Properties
+                ) {
+
+                    $routes +=
+                        [pscustomobject]@{
+                            channel = [string]$p.Name
+
+                            sound =
+                                Split-Path `
+                                    -Leaf `
+                                    ([string]$p.Value)
+                        }
                 }
 
-                $routes = @($routes | Sort-Object channel)
+
+                $routes =
+                    @(
+                        $routes |
+                        Sort-Object channel
+                    )
             }
         }
         catch {}
     }
 
-    if(Test-Path $routerLog) {
+
+    # --------------------------------------------------------
+    # LAST DETECTED
+    # --------------------------------------------------------
+
+    if(Test-Path -LiteralPath $routerLog) {
+
         try {
-            $lines = @(Get-Content -LiteralPath $routerLog -Tail 100 -Encoding UTF8)
 
-            for($i = $lines.Count - 1; $i -ge 0; $i--) {
-                if($lines[$i] -match 'channel=#([^\s]+)') {
-                    $lastDetected = '#' + $matches[1]
+            $lines =
+                @(
+                    Get-Content `
+                        -LiteralPath $routerLog `
+                        -Tail 100 `
+                        -Encoding UTF8 `
+                        -ErrorAction Stop
+                )
+
+
+            for(
+                $i = $lines.Count - 1;
+                $i -ge 0;
+                $i--
+            ) {
+
+                if(
+                    $lines[$i] -match
+                    'channel=#([^\s]+)'
+                ) {
+
+                    $lastDetected =
+                        '#' + $matches[1]
+
                     break
                 }
 
-                if($lines[$i] -match 'channel=unknown') {
-                    $lastDetected = '[notification without channel]'
+
+                if(
+                    $lines[$i] -match
+                    'channel=unknown'
+                ) {
+
+                    $lastDetected =
+                        '[notification without channel]'
+
                     break
                 }
             }
         }
         catch {}
     }
+
 
     [pscustomobject]@{
         routerRunning = $routerRunning
@@ -503,7 +942,6 @@ function Get-ChannelAudioStatus {
         lastDetected  = $lastDetected
     }
 }
-
 
 function Read-ChannelRoutesConfig {
     $configPath = Join-Path $script:Root 'channel-routes.json'
@@ -625,8 +1063,16 @@ $listener=$null
 try {
     for($p=$Port;$p -lt ($Port+20);$p++){try{$listener=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,$p);$listener.Start();$Port=$p;break}catch{
 function Get-ChannelAudioStatus {
-    $configPath = Join-Path $script:Root 'channel-routes.json'
-    $routerLog  = Join-Path $script:Root 'channel-router.log'
+
+    $configPath =
+        Join-Path $script:Root 'channel-routes.json'
+
+    $routerLog =
+        Join-Path $script:Root 'channel-router.log'
+
+    $routerStdout =
+        Join-Path $script:Root 'channel-router.stdout.log'
+
 
     $routerRunning = $false
     $enabled = $true
@@ -634,66 +1080,159 @@ function Get-ChannelAudioStatus {
     $routes = @()
     $lastDetected = ''
 
-    try {
-        $procs = @(
-            Get-CimInstance Win32_Process `
-                -Filter "Name='powershell.exe'" `
-                -ErrorAction SilentlyContinue |
-            Where-Object {
-                $_.CommandLine -and
-                $_.CommandLine -match 'ChannelRouter\.ps1'
-            }
-        )
 
-        $routerRunning = ($procs.Count -gt 0)
-    }
-    catch {}
+    # --------------------------------------------------------
+    # ROUTER STATUS
+    #
+    # No CIM / WMI in the web request.
+    # --------------------------------------------------------
 
-    if(Test-Path $configPath) {
+    foreach($path in @(
+        $routerStdout,
+        $routerLog
+    )) {
+
+        if(!(Test-Path -LiteralPath $path)) {
+            continue
+        }
+
         try {
-            $cfg = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 |
+
+            $info =
+                Get-Item `
+                    -LiteralPath $path `
+                    -ErrorAction Stop
+
+
+            $ageSeconds =
+                (
+                    (Get-Date).ToUniversalTime() -
+                    $info.LastWriteTimeUtc
+                ).TotalSeconds
+
+
+            if($ageSeconds -le 300) {
+
+                $routerRunning = $true
+                break
+            }
+        }
+        catch {}
+    }
+
+
+    # --------------------------------------------------------
+    # ROUTES
+    # --------------------------------------------------------
+
+    if(Test-Path -LiteralPath $configPath) {
+
+        try {
+
+            $cfg =
+                Get-Content `
+                    -LiteralPath $configPath `
+                    -Raw `
+                    -Encoding UTF8 `
+                    -ErrorAction Stop |
                 ConvertFrom-Json
+
 
             if($null -ne $cfg.enabled) {
                 $enabled = [bool]$cfg.enabled
             }
 
+
             if($cfg.defaultSound) {
-                $defaultSound = Split-Path -Leaf ([string]$cfg.defaultSound)
+
+                $defaultSound =
+                    Split-Path `
+                        -Leaf `
+                        ([string]$cfg.defaultSound)
             }
+
 
             if($null -ne $cfg.routes) {
-                foreach($p in $cfg.routes.PSObject.Properties) {
-                    $routes += [pscustomobject]@{
-                        channel = [string]$p.Name
-                        sound   = Split-Path -Leaf ([string]$p.Value)
-                    }
+
+                foreach(
+                    $p in
+                    $cfg.routes.PSObject.Properties
+                ) {
+
+                    $routes +=
+                        [pscustomobject]@{
+                            channel = [string]$p.Name
+
+                            sound =
+                                Split-Path `
+                                    -Leaf `
+                                    ([string]$p.Value)
+                        }
                 }
 
-                $routes = @($routes | Sort-Object channel)
+
+                $routes =
+                    @(
+                        $routes |
+                        Sort-Object channel
+                    )
             }
         }
         catch {}
     }
 
-    if(Test-Path $routerLog) {
+
+    # --------------------------------------------------------
+    # LAST DETECTED CHANNEL
+    # --------------------------------------------------------
+
+    if(Test-Path -LiteralPath $routerLog) {
+
         try {
-            $lines = @(Get-Content -LiteralPath $routerLog -Tail 100 -Encoding UTF8)
 
-            for($i = $lines.Count - 1; $i -ge 0; $i--) {
-                if($lines[$i] -match 'channel=#([^\s]+)') {
-                    $lastDetected = '#' + $matches[1]
+            $lines =
+                @(
+                    Get-Content `
+                        -LiteralPath $routerLog `
+                        -Tail 100 `
+                        -Encoding UTF8 `
+                        -ErrorAction Stop
+                )
+
+
+            for(
+                $i = $lines.Count - 1;
+                $i -ge 0;
+                $i--
+            ) {
+
+                if(
+                    $lines[$i] -match
+                    'channel=#([^\s]+)'
+                ) {
+
+                    $lastDetected =
+                        '#' + $matches[1]
+
                     break
                 }
 
-                if($lines[$i] -match 'channel=unknown') {
-                    $lastDetected = '[notification without channel]'
+
+                if(
+                    $lines[$i] -match
+                    'channel=unknown'
+                ) {
+
+                    $lastDetected =
+                        '[notification without channel]'
+
                     break
                 }
             }
         }
         catch {}
     }
+
 
     [pscustomobject]@{
         routerRunning = $routerRunning
@@ -703,7 +1242,6 @@ function Get-ChannelAudioStatus {
         lastDetected  = $lastDetected
     }
 }
-
 
 function Read-ChannelRoutesConfig {
     $configPath = Join-Path $script:Root 'channel-routes.json'
@@ -856,12 +1394,171 @@ $listener=$null}}
                 continue
             }
             if($req.Method -eq 'GET' -and $req.Path -eq '/api/status'){
+
                 Write-WebDiag 'Building status object.' $rid
-                $obj=Get-StatusObject -RequestId $rid
-                Json-Response $client $obj
-                Write-WebDiag 'Status response sent.' $rid
+
+                $obj =
+                    Get-StatusObject `
+                        -RequestId $rid
+
+
+                Write-WebDiag 'STATUS JSON 1: projection starting.' $rid
+
+
+                # ------------------------------
+                # Notifications
+                # ------------------------------
+
+                $safeNotifications = @()
+
+                foreach($n in @($obj.notifications)) {
+
+                    if($null -eq $n) {
+                        continue
+                    }
+
+                    $safeNotifications +=
+                        [ordered]@{
+                            time     = [string]$n.time
+                            source   = [string]$n.source
+                            message  = [string]$n.message
+                            sound    = [string]$n.sound
+                            backend  = [string]$n.backend
+                            eventKey = [string]$n.eventKey
+                        }
+                }
+
+
+                # ------------------------------
+                # Channel routes
+                # ------------------------------
+
+                $safeRoutes = @()
+
+                if(
+                    $obj.channelAudio -and
+                    $obj.channelAudio.routes
+                ) {
+
+                    foreach(
+                        $r in
+                        @($obj.channelAudio.routes)
+                    ) {
+
+                        if($null -eq $r) {
+                            continue
+                        }
+
+                        $safeRoutes +=
+                            [ordered]@{
+                                channel = [string]$r.channel
+                                sound   = [string]$r.sound
+                            }
+                    }
+                }
+
+
+                Write-WebDiag `
+                    "STATUS JSON 2: projection complete notifications=$($safeNotifications.Count) routes=$($safeRoutes.Count)" `
+                    $rid
+
+
+                # ------------------------------
+                # Primitive-only payload
+                # ------------------------------
+
+                $payload =
+                    [ordered]@{
+                        ok             = [bool]$obj.ok
+                        build          = [string]$obj.build
+                        installed      = [bool]$obj.installed
+                        slackRunning   = [bool]$obj.slackRunning
+                        cachePresent   = [bool]$obj.cachePresent
+                        health         = [string]$obj.health
+                        watcherRunning = [bool]$obj.watcherRunning
+                        watcherDetail  = [string]$obj.watcherDetail
+                        ffmpeg         = [bool]$obj.ffmpeg
+                        log            = [string]$obj.log
+                        notifications  = @($safeNotifications)
+                        agentBuild     = [string]$obj.agentBuild
+
+                        channelAudio =
+                            [ordered]@{
+                                routerRunning =
+                                    [bool]$obj.channelAudio.routerRunning
+
+                                enabled =
+                                    [bool]$obj.channelAudio.enabled
+
+                                defaultSound =
+                                    [string]$obj.channelAudio.defaultSound
+
+                                routes =
+                                    @($safeRoutes)
+
+                                lastDetected =
+                                    [string]$obj.channelAudio.lastDetected
+                            }
+                    }
+
+
+                if(
+                    $obj.PSObject.Properties[
+                        'alertSettings'
+                    ]
+                ) {
+
+                    $payload['alertSettings'] =
+                        [ordered]@{
+                            autoDismiss =
+                                [bool]$obj.alertSettings.autoDismiss
+
+                            autoDismissSeconds =
+                                [int]$obj.alertSettings.autoDismissSeconds
+                        }
+                }
+
+
+                # ------------------------------
+                # Serialize
+                # ------------------------------
+
+                $json =
+                    $payload |
+                    ConvertTo-Json `
+                        -Depth 5 `
+                        -Compress
+
+
+                Write-WebDiag `
+                    "STATUS JSON 3: serialized chars=$($json.Length)" `
+                    $rid
+
+
+                # ------------------------------
+                # Write bytes
+                # ------------------------------
+
+                Send-Response `
+                    $client `
+                    200 `
+                    'application/json; charset=utf-8' `
+                    $json
+
+
+                Write-WebDiag `
+                    'STATUS JSON 4: socket write complete.' `
+                    $rid
+
+
+                Write-WebDiag `
+                    'Status response sent.' `
+                    $rid
+
+
                 continue
             }
+
             if($req.Method -eq 'GET' -and $req.Path -eq '/api/update/check'){
                 try {
                     Write-WebDiag 'Checking GitHub for ShinySlack updates.' $rid
@@ -1029,6 +1726,52 @@ if(!$latest) {
                     Write-WebException $_ $rid 'Apply route failed'
                     try{Json-Response $client @{ok=$false;error=$_.Exception.Message} 500}catch{Write-WebException $_ $rid 'Failed to send Apply error response'}
                 }
+                continue
+            }
+
+
+            if(
+                $req.Method -eq 'POST' -and
+                $req.Path -eq '/api/alerts/settings'
+            ) {
+
+                try {
+
+                    $body =
+                        $req.Body |
+                        ConvertFrom-Json
+
+
+                    if($null -eq $body.autoDismiss) {
+                        throw 'autoDismiss is required.'
+                    }
+
+
+                    $settings =
+                        Set-PersistentAlertSettings `
+                            -AutoDismiss ([bool]$body.autoDismiss)
+
+
+                    Json-Response $client @{
+                        ok = $true
+                        settings = $settings
+                    }
+                }
+                catch {
+
+                    Write-WebException `
+                        $_ `
+                        $rid `
+                        'Alert settings failed'
+
+
+                    Json-Response $client @{
+                        ok = $false
+                        error = $_.Exception.Message
+                    } 500
+                }
+
+
                 continue
             }
 

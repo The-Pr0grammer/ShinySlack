@@ -588,6 +588,17 @@ $stackLastSeen  = @{}
 # RuntimeId rebuilds/repaints cannot create ghost primary sounds.
 $primaryChannelSessions = @{}
 
+# GHOST-GUARD-V1
+#
+# Slack can briefly remove/recreate the same toast accessibility
+# tree. Remember identifiers from notifications that actually fired.
+#
+# RuntimeId match = strong identity.
+# Message fingerprint fallback targets the observed ~8 second
+# repaint cycle without creating a broad channel cooldown.
+$recentPrimarySignatures = @{}
+$primarySignatureTtlSeconds = 12
+
 # Remember where/when a channel toast fired so the slower
 # OpenTeam fallback cannot replay the same notification later.
 $recentPrimaryToasts = @()
@@ -644,6 +655,146 @@ while($true) {
             #
             # Same-channel additions are handled by STACK_EXTRA,
             # not by another OpenChannel primary fire.
+            # ------------------------------------------------
+            # GHOST-GUARD-V1
+            # ------------------------------------------------
+
+            $candidateSignatures = @()
+
+
+            # Real UI Automation RuntimeId.
+            #
+            # Get-RuntimeKey's geometry fallback contains "|";
+            # do NOT treat that fallback as persistent identity.
+            if(
+                $elementKey -and
+                $elementKey.IndexOf('|') -lt 0
+            ) {
+
+                $candidateSignatures +=
+                    "runtime|$channelKey|$elementKey"
+            }
+
+
+            # Message fingerprint fallback.
+            #
+            # The text never leaves memory and is never written
+            # to the router log.
+            try {
+
+                $candidateMessages =
+                    @(
+                        Get-ToastMessages `
+                            -Channels @($c) |
+                        Sort-Object Y
+                    )
+
+
+                $messageParts =
+                    @(
+                        $candidateMessages |
+                        ForEach-Object {
+
+                            try {
+
+                                (
+                                    [string]$_.Element.Current.Name
+                                ).Trim()
+                            }
+                            catch {
+                                ''
+                            }
+                        } |
+                        Where-Object {
+                            ![string]::IsNullOrWhiteSpace($_)
+                        }
+                    )
+
+
+                if($messageParts.Count -gt 0) {
+
+                    $candidateSignatures +=
+                        (
+                            "message|$channelKey|" +
+                            ($messageParts -join '||')
+                        )
+                }
+            }
+            catch {}
+
+
+            $ghostReplay = $false
+            $ghostReason = ''
+            $ghostAgeMs  = 0
+
+
+            foreach(
+                $signature in
+                @($candidateSignatures)
+            ) {
+
+                if(
+                    !$recentPrimarySignatures.ContainsKey(
+                        $signature
+                    )
+                ) {
+                    continue
+                }
+
+
+                $signatureAge =
+                    (
+                        (Get-Date) -
+                        $recentPrimarySignatures[$signature]
+                    ).TotalMilliseconds
+
+
+                # Same RuntimeId within 12 sec is the same UI object
+                # repainting/reappearing.
+                if(
+                    $signature.StartsWith('runtime|') -and
+                    $signatureAge -ge 0 -and
+                    $signatureAge -le 12000
+                ) {
+
+                    $ghostReplay = $true
+                    $ghostReason = 'runtime'
+                    $ghostAgeMs  = [int]$signatureAge
+
+                    break
+                }
+
+
+                # When Slack rebuilds RuntimeId, use the exact message
+                # fingerprint only inside the repeatedly observed
+                # repaint window (~8 sec).
+                if(
+                    $signature.StartsWith('message|') -and
+                    $signatureAge -ge 6000 -and
+                    $signatureAge -le 11500
+                ) {
+
+                    $ghostReplay = $true
+                    $ghostReason = 'message-cycle'
+                    $ghostAgeMs  = [int]$signatureAge
+
+                    break
+                }
+            }
+
+
+            if($ghostReplay) {
+
+                Write-RouterLog (
+                    "PRIMARY_SUPPRESSED ghost-{0} channel=#{1} ageMs={2}" -f `
+                    $ghostReason,
+                    $channelKey,
+                    $ghostAgeMs
+                )
+
+                continue
+            }
+
             if($primaryChannelSessions.ContainsKey($channelKey)) {
 
                 Write-RouterLog `
@@ -653,6 +804,24 @@ while($true) {
             }
 
             $primaryChannelSessions[$channelKey] = Get-Date
+
+            $signatureStamp = Get-Date
+
+            foreach(
+                $signature in
+                @($candidateSignatures)
+            ) {
+
+                if(
+                    ![string]::IsNullOrWhiteSpace(
+                        $signature
+                    )
+                ) {
+
+                    $recentPrimarySignatures[$signature] =
+                        $signatureStamp
+                }
+            }
 
             $recentPrimaryToasts += [pscustomobject]@{
                 Time = $now
@@ -855,6 +1024,26 @@ while($true) {
                     Write-RouterLog `
                         "PRIMARY_SESSION_RESET channel=#$stackChannel"
                 }
+            }
+        }
+
+        # Expire ghost fingerprints quickly.
+        foreach(
+            $signature in
+            @($recentPrimarySignatures.Keys)
+        ) {
+
+            if(
+                (
+                    $now -
+                    $recentPrimarySignatures[$signature]
+                ).TotalSeconds -gt
+                $primarySignatureTtlSeconds
+            ) {
+
+                $recentPrimarySignatures.Remove(
+                    $signature
+                )
             }
         }
 
