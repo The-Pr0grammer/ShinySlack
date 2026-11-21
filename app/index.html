@@ -3433,11 +3433,11 @@ function renderSoundOwnership(o){
 
     guard.textContent=
       o.guardFresh
-        ? 'Safety Guard: standby Â· fallback available'
+        ? 'Safety Guard: standby | fallback available'
         : 'Safety Guard: starting';
 
     banner.classList.add('show','safe');
-    banner.textContent='âœ“ FALLBACK AUDIO ACTIVE Â· ShinySlack Router is not the sole audio source.';
+    banner.textContent='FALLBACK AUDIO ACTIVE | ShinySlack Router is not the sole audio source.';
     return;
   }
 
@@ -3448,13 +3448,13 @@ function renderSoundOwnership(o){
 
     if(o.audioIntentionallyMuted){
       banner.classList.add('show','warning');
-      banner.textContent='âš  ROUTER AUDIO IS MUTED Â· Visual alerts still work, but audible notifications are intentionally disabled.';
+      banner.textContent='WARNING: ROUTER AUDIO IS MUTED | Visual alerts still work, but audible notifications are intentionally disabled.';
     }else if(o.risk){
       banner.classList.add('show','danger');
-      banner.textContent='âš  AUDIO FAILSAFE ACTIVE Â· Router health is degraded. Automatic fallback is armed or being attempted.';
+      banner.textContent='WARNING: AUDIO FAILSAFE ACTIVE | Router health is degraded. Automatic fallback is armed or being attempted.';
     }else{
       banner.classList.add('show','router');
-      banner.textContent='SHINYSLACK ROUTER AUDIO ACTIVE Â· Safety Guard armed Â· fallback available.';
+      banner.textContent='SHINYSLACK ROUTER AUDIO ACTIVE | Safety Guard armed | fallback available.';
     }
 
     detail.textContent=
@@ -3465,7 +3465,7 @@ function renderSoundOwnership(o){
     guard.textContent=
       'Safety Guard: '+
       (o.guardState||(o.guardFresh?'armed':'starting'))+
-      (o.guardMessage?' Â· '+o.guardMessage:'');
+      (o.guardMessage?' | '+o.guardMessage:'');
 
     return;
   }
@@ -3474,7 +3474,7 @@ function renderSoundOwnership(o){
   title.textContent='Unknown sound ownership state';
   detail.textContent='Use fallback until this state is resolved.';
   banner.classList.add('show','danger');
-  banner.textContent='âš  SOUND OWNERSHIP STATE UNKNOWN';
+  banner.textContent='WARNING: SOUND OWNERSHIP STATE UNKNOWN';
 }
 
 async function status(){
