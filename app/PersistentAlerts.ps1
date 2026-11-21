@@ -880,35 +880,151 @@ function Render-Expanded {
                 [Windows.Forms.Cursors]::Hand
 
             $rail.Add_Click($openSlack)
-
-
             # -------------------------------------------------
-            # CHANNEL
+            # CHANNEL — PAINTED GLOW TEXT
             # -------------------------------------------------
 
-            $channel =
-                New-Object System.Windows.Forms.Label
+            $channelText =
+                [string]$a.Channel
 
-            $channel.Left = 15
-            $channel.Top = 9
-            $channel.Width = 245
-            $channel.Height = 22
+            $channelAccent =
+                $accent
 
-            $channel.Text = $a.Channel
-            $channel.ForeColor = $accent
+            $paintChannel = {
 
-            $channel.Font =
-                New-Object Drawing.Font(
-                    'Segoe UI',
-                    10,
-                    [Drawing.FontStyle]::Bold
-                )
+                param($sender,$paintArgs)
 
-            $channel.Tag = $a.Channel
-            $channel.Cursor =
-                [Windows.Forms.Cursors]::Hand
+                $g =
+                    $paintArgs.Graphics
 
-            $channel.Add_Click($openSlack)
+                $g.SmoothingMode =
+                    [Drawing.Drawing2D.SmoothingMode]::AntiAlias
+
+                $g.TextRenderingHint =
+                    [Drawing.Text.TextRenderingHint]::AntiAlias
+
+
+                # Slightly shrink unusually long channel names.
+                $fontSize =
+                    if($channelText.Length -gt 23){
+                        10.5
+                    }
+                    elseif($channelText.Length -gt 18){
+                        11
+                    }
+                    else {
+                        12
+                    }
+
+
+                $font =
+                    New-Object Drawing.Font(
+                        'Segoe UI',
+                        $fontSize,
+                        [Drawing.FontStyle]::Bold
+                    )
+
+
+                $format =
+                    New-Object Drawing.StringFormat
+
+                $format.Alignment =
+                    [Drawing.StringAlignment]::Near
+
+                $format.LineAlignment =
+                    [Drawing.StringAlignment]::Center
+
+                $format.Trimming =
+                    [Drawing.StringTrimming]::EllipsisCharacter
+
+                $format.FormatFlags =
+                    [Drawing.StringFormatFlags]::NoWrap
+
+
+                # Space available before timestamp.
+                $rect =
+                    New-Object Drawing.RectangleF(
+                        15,
+                        0,
+                        262,
+                        64
+                    )
+
+
+                # Soft glow — intentionally restrained.
+                $glow =
+                    New-Object Drawing.SolidBrush(
+                        [Drawing.Color]::FromArgb(
+                            52,
+                            $channelAccent.R,
+                            $channelAccent.G,
+                            $channelAccent.B
+                        )
+                    )
+
+
+                $main =
+                    New-Object Drawing.SolidBrush(
+                        $channelAccent
+                    )
+
+
+                try {
+
+                    # ~CSS text-shadow: 0 0 6px currentColor
+                    foreach($offset in @(
+                        @(-2,0),
+                        @( 2,0),
+                        @(0,-2),
+                        @(0, 2),
+                        @(-1,-1),
+                        @( 1,-1),
+                        @(-1, 1),
+                        @( 1, 1)
+                    )){
+
+                        $glowRect =
+                            New-Object Drawing.RectangleF(
+                                ($rect.X + $offset[0]),
+                                ($rect.Y + $offset[1]),
+                                $rect.Width,
+                                $rect.Height
+                            )
+
+                        $g.DrawString(
+                            $channelText,
+                            $font,
+                            $glow,
+                            $glowRect,
+                            $format
+                        )
+                    }
+
+
+                    # Crisp foreground text.
+                    $g.DrawString(
+                        $channelText,
+                        $font,
+                        $main,
+                        $rect,
+                        $format
+                    )
+                }
+                finally {
+
+                    $font.Dispose()
+                    $format.Dispose()
+                    $glow.Dispose()
+                    $main.Dispose()
+                }
+
+            }.GetNewClosure()
+
+
+            $card.Add_Paint(
+                $paintChannel
+            )
+
 
 
             # -------------------------------------------------
@@ -918,9 +1034,9 @@ function Render-Expanded {
             $time =
                 New-Object System.Windows.Forms.Label
 
-            $time.Left = 267
-            $time.Top = 10
-            $time.Width = 88
+            $time.Left = 282
+            $time.Top = 22
+            $time.Width = 74
             $time.Height = 20
 
             $time.TextAlign = 'MiddleRight'
@@ -949,7 +1065,7 @@ function Render-Expanded {
                 New-Button 'X' 28
 
             $x.Left = 369
-            $x.Top = 5
+            $x.Top = 20
             $x.Height = 24
             $x.Tag = $a.Id
 
@@ -998,46 +1114,9 @@ function Render-Expanded {
             })
 
 
-            # -------------------------------------------------
-            # SOUND
-            # -------------------------------------------------
-
-            $sound =
-                New-Object System.Windows.Forms.Label
-
-            $sound.Left = 15
-            $sound.Top = 38
-            $sound.Width = 350
-            $sound.Height = 18
-
-            $sound.Text =
-                "Sound: $($a.Sound)"
-
-            $sound.ForeColor =
-                [Drawing.Color]::FromArgb(
-                    106,
-                    123,
-                    146
-                )
-
-            $sound.Font =
-                New-Object Drawing.Font(
-                    'Segoe UI',
-                    7.75
-                )
-
-            $sound.Tag = $a.Channel
-            $sound.Cursor =
-                [Windows.Forms.Cursors]::Hand
-
-            $sound.Add_Click($openSlack)
-
-
             $card.Controls.Add($rail)
-            $card.Controls.Add($channel)
             $card.Controls.Add($time)
             $card.Controls.Add($x)
-            $card.Controls.Add($sound)
 
             $shell.Controls.Add($card)
             $form.Controls.Add($shell)
