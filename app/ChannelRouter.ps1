@@ -1,4 +1,4 @@
-﻿param(
+param(
     [int]$PollMilliseconds = 50,
     [int]$SettleMilliseconds = 100
 )
@@ -38,6 +38,11 @@ $teamCondition = New-Object System.Windows.Automation.PropertyCondition(
 $channelCondition = New-Object System.Windows.Automation.PropertyCondition(
     [System.Windows.Automation.AutomationElement]::ClassNameProperty,
     "OpenChannel"
+)
+
+$messageCondition = New-Object System.Windows.Automation.PropertyCondition(
+    [System.Windows.Automation.AutomationElement]::ClassNameProperty,
+    "Message"
 )
 
 function Say {
@@ -291,34 +296,8 @@ function Play-Sound {
         Write-RouterLog "$Reason sound=$name backend=WAV"
     }
     catch {
-        # A machine without ffmpeg cannot prebuild the low-latency WAV.
-        # Fall back to Windows MediaPlayer instead of losing notifications.
-        try {
-            $full = [IO.Path]::GetFullPath($Path)
-
-            $fallback =
-                New-Object System.Windows.Media.MediaPlayer
-
-            $fallback.Volume = $script:Volume
-            $fallback.Open([Uri]$full)
-            $fallback.Play()
-
-            [void]$script:Players.Add(
-                [pscustomobject]@{
-                    Player = $fallback
-                    Expires = (Get-Date).AddSeconds(45)
-                }
-            )
-
-            $name = [IO.Path]::GetFileName($full)
-
-            Say "PLAYING -> $name (MP3 fallback)" Yellow
-            Write-RouterLog "$Reason sound=$name backend=MP3-FALLBACK"
-        }
-        catch {
-            Say "PLAYBACK ERROR: $($_.Exception.Message)" Red
-            Write-RouterLog "PLAYBACK_ERROR $Reason $($_.Exception.Message)"
-        }
+        Say "PLAYBACK ERROR: $($_.Exception.Message)" Red
+        Write-RouterLog "PLAYBACK_ERROR $Reason $($_.Exception.Message)"
     }
 }
 function Get-RuntimeKey {
@@ -435,6 +414,113 @@ function Get-ToastChannels {
     return @($result)
 }
 
+function Get-ToastMessages {
+    param($Channels)
+
+    $result = @()
+
+    if(@($Channels).Count -eq 0) {
+        return @()
+    }
+
+    $elements = $desktop.FindAll(
+        [System.Windows.Automation.TreeScope]::Descendants,
+        $messageCondition
+    )
+
+    foreach($e in $elements) {
+
+        try {
+            $rect = $e.Current.BoundingRectangle
+
+            if(
+                $rect.Width -le 0 -or
+                $rect.Height -le 0
+            ) {
+                continue
+            }
+
+            if(
+                $rect.X -lt ($screen.Right - 700) -or
+                $rect.Y -lt ($screen.Bottom - 700)
+            ) {
+                continue
+            }
+
+            $nearChannel = $false
+
+            foreach($c in @($Channels)) {
+
+                $horizontal =
+                    ($rect.X -le ($c.X + $c.W + 120)) -and
+                    (($rect.X + $rect.Width) -ge ($c.X - 120))
+
+                $dy = $rect.Y - $c.Y
+
+                if(
+                    $horizontal -and
+                    $dy -ge -40 -and
+                    $dy -le 520
+                ) {
+                    $nearChannel = $true
+                    break
+                }
+            }
+
+            if(!$nearChannel) {
+                continue
+            }
+
+            $result += [pscustomobject]@{
+                Key     = Get-RuntimeKey $e
+                Element = $e
+                X       = [double]$rect.X
+                Y       = [double]$rect.Y
+                W       = [double]$rect.Width
+                H       = [double]$rect.Height
+            }
+        }
+        catch {}
+    }
+
+    return @($result)
+}
+
+
+function Find-ChannelForMessage {
+    param(
+        $Message,
+        $Channels
+    )
+
+    $best = $null
+    $bestDistance = 999999
+
+    foreach($c in @($Channels)) {
+
+        $horizontal =
+            ($Message.X -le ($c.X + $c.W + 120)) -and
+            (($Message.X + $Message.W) -ge ($c.X - 120))
+
+        if(!$horizontal) {
+            continue
+        }
+
+        $dy = $Message.Y - $c.Y
+
+        if(
+            $dy -ge -40 -and
+            $dy -le 520 -and
+            $dy -lt $bestDistance
+        ) {
+            $best = $c.Channel
+            $bestDistance = $dy
+        }
+    }
+
+    return $best
+}
+
 function Find-ChannelForToast {
     param(
         $Team,
@@ -489,6 +575,19 @@ Write-RouterLog "START build=$script:Build mode=channel-first"
 $activeChannels = @{}
 $recentChannelFires = @{}
 
+# OpenChannel owns the first instant sound.
+#
+# Stack augmenter tracks HOW MANY notification cards have already
+# been sounded for each channel. Counts only move upward during
+# one visible stack session, so Slack repainting/rebuilding cards
+# cannot create ghost encores.
+$stackAccounted = @{}
+$stackLastSeen  = @{}
+
+# One primary OpenChannel fire per visible Slack stack session.
+# RuntimeId rebuilds/repaints cannot create ghost primary sounds.
+$primaryChannelSessions = @{}
+
 # Remember where/when a channel toast fired so the slower
 # OpenTeam fallback cannot replay the same notification later.
 $recentPrimaryToasts = @()
@@ -540,17 +639,20 @@ while($true) {
             # Suppress only extremely-close repeats for the same channel.
             $channelKey = [string]$c.Channel
 
-            $last = $recentChannelFires[$channelKey]
+            # Primary sound may fire exactly once for the lifetime
+            # of this visible channel stack.
+            #
+            # Same-channel additions are handled by STACK_EXTRA,
+            # not by another OpenChannel primary fire.
+            if($primaryChannelSessions.ContainsKey($channelKey)) {
 
-            if(
-                $last -and
-                (($now - $last).TotalMilliseconds -lt $channelDedupeMilliseconds)
-            ) {
-                Write-RouterLog "DEDUPE channel=#$channelKey"
+                Write-RouterLog `
+                    "PRIMARY_SUPPRESSED session-active channel=#$channelKey"
+
                 continue
             }
 
-            $recentChannelFires[$channelKey] = $now
+            $primaryChannelSessions[$channelKey] = Get-Date
 
             $recentPrimaryToasts += [pscustomobject]@{
                 Time = $now
@@ -581,6 +683,12 @@ while($true) {
                     -Path $script:DefaultSound `
                     -Reason "DEFAULT channel=#$channelKey"
             }
+
+            # Primary sound accounts for notification #1.
+            # Any additional visible Message cards for this channel
+            # will be handled by the stack augmenter below.
+            $stackAccounted[$channelKey] = 1
+            $stackLastSeen[$channelKey]  = Get-Date
         }
 
         # Allow a new toast to use the same RuntimeId after the old one disappears.
@@ -588,6 +696,165 @@ while($true) {
 
             if(!$presentChannels.ContainsKey($key)) {
                 $activeChannels.Remove($key)
+            }
+        }
+
+        # ------------------------------------------------------------
+        # STACK AUGMENTER — COUNT LEDGER
+        #
+        # OpenChannel still owns notification #1 immediately.
+        #
+        # We count visible Slack Message cards by channel and only
+        # play when that count EXCEEDS what has already been sounded.
+        #
+        # IMPORTANT:
+        # The accounted count never decreases during a stack session.
+        # Slack may repaint, rebuild, move or remove cards without
+        # creating a fake new notification.
+        # ------------------------------------------------------------
+
+        $messages = @(Get-ToastMessages -Channels $channels)
+
+        $visibleStackCounts = @{}
+
+        foreach($m in $messages) {
+
+            $channelForMessage =
+                Find-ChannelForMessage `
+                    -Message $m `
+                    -Channels $channels
+
+            if([string]::IsNullOrWhiteSpace($channelForMessage)) {
+                continue
+            }
+
+            if(!$visibleStackCounts.ContainsKey($channelForMessage)) {
+                $visibleStackCounts[$channelForMessage] = 0
+            }
+
+            $visibleStackCounts[$channelForMessage]++
+        }
+
+
+        foreach($stackChannel in @($visibleStackCounts.Keys)) {
+
+            # Only augment a stack that was first claimed by the
+            # proven OpenChannel primary trigger.
+            if(!$stackAccounted.ContainsKey($stackChannel)) {
+                continue
+            }
+
+            $visible =
+                [int]$visibleStackCounts[$stackChannel]
+
+            $accounted =
+                [int]$stackAccounted[$stackChannel]
+
+            $stackLastSeen[$stackChannel] = Get-Date
+
+
+            if($visible -le $accounted) {
+
+                Write-RouterLog (
+                    "STACK_STABLE channel=#{0} visible={1} accounted={2}" -f `
+                    $stackChannel,
+                    $visible,
+                    $accounted
+                )
+
+                continue
+            }
+
+
+            $extras = $visible - $accounted
+
+            Write-RouterLog (
+                "STACK_GROW channel=#{0} visible={1} accounted={2} extras={3}" -f `
+                $stackChannel,
+                $visible,
+                $accounted,
+                $extras
+            )
+
+
+            if($script:Routes.ContainsKey($stackChannel)) {
+
+                $stackSound =
+                    $script:Routes[$stackChannel]
+
+                $stackReason =
+                    "STACK_EXTRA channel=#$stackChannel"
+            }
+            else {
+
+                $stackSound =
+                    $script:DefaultSound
+
+                $stackReason =
+                    "STACK_EXTRA_DEFAULT channel=#$stackChannel"
+            }
+
+
+            for($extra = 0; $extra -lt $extras; $extra++) {
+
+                # Preserve immediate primary playback while making
+                # subsequent alerts individually audible.
+                Start-Sleep -Milliseconds 180
+
+                Play-Sound `
+                    -Path $stackSound `
+                    -Reason $stackReason
+            }
+
+
+            # Monotonic: never reduce this number while this stack
+            # session remains alive.
+            $stackAccounted[$stackChannel] = $visible
+        }
+
+
+        # ------------------------------------------------------------
+        # EXPIRE FINISHED STACK SESSIONS
+        #
+        # Only reset after the channel header has actually disappeared
+        # long enough to represent a new notification session.
+        # ------------------------------------------------------------
+
+        $visibleChannelNames = @{}
+
+        foreach($c in $channels) {
+
+            if($c.Channel) {
+                $visibleChannelNames[[string]$c.Channel] = $true
+            }
+        }
+
+
+        foreach($stackChannel in @($stackAccounted.Keys)) {
+
+            if($visibleChannelNames.ContainsKey($stackChannel)) {
+                continue
+            }
+
+            $lastSeen = $stackLastSeen[$stackChannel]
+
+            if(
+                !$lastSeen -or
+                (((Get-Date) - $lastSeen).TotalMilliseconds -gt 1800)
+            ) {
+                Write-RouterLog `
+                    "STACK_RESET channel=#$stackChannel"
+
+                $stackAccounted.Remove($stackChannel)
+                $stackLastSeen.Remove($stackChannel)
+
+                if($primaryChannelSessions.ContainsKey($stackChannel)) {
+
+                    $primaryChannelSessions.Remove($stackChannel)
+
+                    Write-RouterLog `
+                        "PRIMARY_SESSION_RESET channel=#$stackChannel"
+                }
             }
         }
 
@@ -627,8 +894,27 @@ while($true) {
                 $activeTeams[$key] = $true
 
                 $pendingTeams[$key] = [pscustomobject]@{
-                    FirstSeen = Get-Date
-                    Team = $teams[$key]
+                    FirstSeen  = Get-Date
+                    Team       = $teams[$key]
+                    HadChannel = $false
+                }
+            }
+        }
+
+        # Remember whether each notification shell ever exposed a channel.
+        # Slack sometimes removes OpenChannel before the fallback timer fires.
+        foreach($key in @($pendingTeams.Keys)) {
+
+            if(
+                $presentTeams.ContainsKey($key) -and
+                !$pendingTeams[$key].HadChannel
+            ) {
+                $seenChannel = Find-ChannelForToast `
+                    -Team $teams[$key] `
+                    -Channels $channels
+
+                if($seenChannel) {
+                    $pendingTeams[$key].HadChannel = $true
                 }
             }
         }
@@ -650,6 +936,17 @@ while($true) {
             }
 
             $team = $teams[$key]
+
+            # Once this shell exposed a channel, the fast path owns it
+            # permanently. It may never become a delayed DEFAULT encore.
+            if($pendingTeams[$key].HadChannel) {
+
+                Write-RouterLog `
+                    "FALLBACK_SUPPRESSED had-channel"
+
+                $pendingTeams.Remove($key)
+                continue
+            }
 
             # If a channel is exposed, the primary channel path owns
             # this notification. Never play a second/default sound here.
@@ -759,5 +1056,3 @@ while($true) {
 
     Start-Sleep -Milliseconds $PollMilliseconds
 }
-
-
