@@ -1304,6 +1304,60 @@ function Resolve-SoundPreset {
     return $preset
 }
 
+# SHINY-PRESET-STATE-HELPER-V1
+function Get-PresetIdForPath {
+    param(
+        [string]$Path
+    )
+
+
+    if(
+        [string]::IsNullOrWhiteSpace(
+            $Path
+        )
+    ){
+        return ''
+    }
+
+
+    try {
+
+        $full =
+            [IO.Path]::GetFullPath(
+                $Path
+            )
+
+
+        foreach($preset in @(Get-SoundPresets)){
+
+            if(!$preset){
+                continue
+            }
+
+
+            $presetFull =
+                [IO.Path]::GetFullPath(
+                    [string]$preset.path
+                )
+
+
+            if(
+                $full.Equals(
+                    $presetFull,
+                    [StringComparison]::OrdinalIgnoreCase
+                )
+            ){
+
+                return [string]$preset.id
+            }
+        }
+    }
+    catch {}
+
+
+    return ''
+}
+
 function Get-ChannelAudioStatus {
 
     $routerLog =
@@ -1424,6 +1478,11 @@ function Get-ChannelAudioStatus {
                         -Leaf `
                         ([string]$cfg.routes[$channelName])
 
+                # SHINY-PRESET-STATE-ROUTE-V1
+                presetId =
+                    Get-PresetIdForPath `
+                        -Path ([string]$cfg.routes[$channelName])
+
                 linked =
                     [bool]$linked
 
@@ -1506,6 +1565,11 @@ function Get-ChannelAudioStatus {
             else {
                 ''
             }
+
+        # SHINY-PRESET-STATE-DEFAULT-V1
+        defaultPresetId =
+            Get-PresetIdForPath `
+                -Path ([string]$cfg.defaultSound)
 
         routes =
             @($routes)
@@ -1981,6 +2045,10 @@ $listener=$null}}
                                 sound =
                                     [string]$r.sound
 
+                                # SHINY-PRESET-STATE-SAFE-ROUTE-V1
+                                presetId =
+                                    [string]$r.presetId
+
                                 linked =
                                     [bool]$r.linked
 
@@ -2031,6 +2099,10 @@ $listener=$null}}
 
                                 defaultSound =
                                     [string]$obj.channelAudio.defaultSound
+
+                                # SHINY-PRESET-STATE-SAFE-DEFAULT-V1
+                                defaultPresetId =
+                                    [string]$obj.channelAudio.defaultPresetId
 
                                 routes =
                                     @($safeRoutes)
