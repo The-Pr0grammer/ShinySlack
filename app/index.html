@@ -50,6 +50,72 @@
   cursor:pointer;
 }
 </style>
+<style id="shinyslack-activity-cards">
+/* =========================================================
+   SHINYSLACK ACTIVITY CARDS
+   Match PersistentAlerts overlay
+   ========================================================= */
+
+.ss-activity-card {
+    cursor: pointer !important;
+
+    min-height: 64px !important;
+
+    transition:
+        background-color 120ms ease,
+        border-color 120ms ease,
+        box-shadow 120ms ease,
+        transform 120ms ease !important;
+}
+
+.ss-activity-card:hover {
+    transform: translateY(-1px);
+
+    background-color: #0a1018 !important;
+
+    box-shadow:
+        0 8px 22px rgba(0, 0, 0, 0.18) !important;
+}
+
+.ss-activity-card:active {
+    transform: translateY(0);
+}
+
+.ss-activity-card:focus-visible {
+    outline: 1px solid rgba(148, 163, 184, 0.65);
+    outline-offset: 2px;
+}
+
+
+/* Kill Sound: filename.mp3 line */
+.ss-activity-sound {
+    display: none !important;
+}
+
+
+/* Main channel title */
+.ss-activity-channel {
+    font-size: 15px !important;
+    font-weight: 800 !important;
+    line-height: 1.15 !important;
+
+    /* same restrained glow idea as floating overlay */
+    text-shadow: 0 0 3px rgba(255,255,255,0.18) !important;
+}
+
+
+/* Keep timestamp crisp */
+.ss-activity-time {
+    font-weight: 700 !important;
+}
+
+
+/* Remove excess vertical space left by Sound row */
+.ss-activity-card {
+    padding-top: 14px !important;
+    padding-bottom: 14px !important;
+}
+</style>
 </head>
 <body>
 <div class="wrap">
@@ -659,6 +725,305 @@ $('checkUpdate').onclick=async()=>{
 $('uninstall').onclick=async()=>{if(!confirm('Remove the ShinySlack watcher and local app files? Slack itself will not be uninstalled.'))return;try{const j=await api('/api/uninstall',{method:'POST'});await waitOperation(j.operationId,'Uninstalling ShinySlack')}catch(e){show(false,e.message)}};
 $('shutdown').onclick=async()=>{try{await api('/api/shutdown',{method:'POST'});document.body.innerHTML='<div style="font-family:Segoe UI;background:#090b11;color:white;height:100vh;display:grid;place-items:center"><div><h1>ShinySlack dashboard closed</h1><p>Background notification routing is still running. You can close this tab.</p></div></div>'}catch(e){show(false,e.message)}};
 status();setInterval(status,10000);
+</script>
+<script id="shinyslack-activity-cards-js">
+(() => {
+    "use strict";
+
+    const LEAF_SELECTOR =
+        "div,span,p,strong,b,small";
+
+
+    function leafElements(root) {
+
+        return [...root.querySelectorAll(LEAF_SELECTOR)]
+            .filter(el => el.children.length === 0);
+    }
+
+
+    function findActivityRoot() {
+
+        const headings =
+            [...document.querySelectorAll("h1,h2,h3,h4")];
+
+        const activity =
+            headings.find(
+                el =>
+                    el.textContent.trim().toLowerCase() ===
+                    "activity"
+            );
+
+        if (!activity) {
+            return null;
+        }
+
+
+        return (
+            activity.closest(
+                "section,.panel,.card,.surface,.dashboard-section"
+            ) ||
+            activity.parentElement?.parentElement ||
+            activity.parentElement
+        );
+    }
+
+
+    function findCard(soundNode, activityRoot) {
+
+        let el =
+            soundNode.parentElement;
+
+
+        for (
+            let depth = 0;
+            el &&
+            el !== activityRoot &&
+            depth < 7;
+            depth++, el = el.parentElement
+        ) {
+
+            const text =
+                el.innerText || "";
+
+
+            const hasChannel =
+                /#[A-Za-z0-9_-]+/.test(text);
+
+            const hasTime =
+                /\b\d{1,2}:\d{2}\s*(AM|PM)\b/i.test(text);
+
+            const notWholeSection =
+                text.length < 500;
+
+
+            if (
+                hasChannel &&
+                hasTime &&
+                notWholeSection
+            ) {
+                return el;
+            }
+        }
+
+
+        return soundNode.parentElement;
+    }
+
+
+    function findLeaf(root, regex) {
+
+        return leafElements(root)
+            .find(
+                el =>
+                    regex.test(
+                        el.textContent.trim()
+                    )
+            );
+    }
+
+
+    function openSlack() {
+
+        /*
+         * Uses Slack's registered desktop protocol.
+         * No channel navigation — just open/focus Slack,
+         * matching the direction we chose for the overlay.
+         */
+
+        window.location.href =
+            "slack://open";
+    }
+
+
+    function decorateActivityCards() {
+
+        const activityRoot =
+            findActivityRoot();
+
+        if (!activityRoot) {
+            return;
+        }
+
+
+        const soundNodes =
+            leafElements(activityRoot)
+                .filter(
+                    el =>
+                        /^Sound:\s*/i.test(
+                            el.textContent.trim()
+                        )
+                );
+
+
+        for (const sound of soundNodes) {
+
+            const card =
+                findCard(
+                    sound,
+                    activityRoot
+                );
+
+
+            if (
+                !card ||
+                card.dataset.shinyActivityReady === "1"
+            ) {
+                continue;
+            }
+
+
+            const channel =
+                findLeaf(
+                    card,
+                    /^#[A-Za-z0-9_-]+$/
+                );
+
+
+            const time =
+                findLeaf(
+                    card,
+                    /^\d{1,2}:\d{2}\s*(AM|PM)$/i
+                );
+
+
+            if (!channel) {
+                continue;
+            }
+
+
+            /* -----------------------------
+               VISUALS
+               ----------------------------- */
+
+            card.classList.add(
+                "ss-activity-card"
+            );
+
+            channel.classList.add(
+                "ss-activity-channel"
+            );
+
+            sound.classList.add(
+                "ss-activity-sound"
+            );
+
+
+            if (time) {
+
+                time.classList.add(
+                    "ss-activity-time"
+                );
+            }
+
+
+            /* -----------------------------
+               CLICKABILITY
+               ----------------------------- */
+
+            card.dataset.shinyActivityReady =
+                "1";
+
+            card.setAttribute(
+                "role",
+                "button"
+            );
+
+            card.setAttribute(
+                "tabindex",
+                "0"
+            );
+
+            card.setAttribute(
+                "title",
+                "Open Slack"
+            );
+
+
+            function activate(event) {
+
+                /*
+                 * Don't hijack a real control if we ever
+                 * add buttons to Activity cards later.
+                 */
+                if (
+                    event.target.closest(
+                        "button,a,input,select,textarea,label"
+                    )
+                ) {
+                    return;
+                }
+
+
+                openSlack();
+            }
+
+
+            card.addEventListener(
+                "click",
+                activate
+            );
+
+
+            card.addEventListener(
+                "keydown",
+                event => {
+
+                    if (
+                        event.key === "Enter" ||
+                        event.key === " "
+                    ) {
+
+                        event.preventDefault();
+                        activate(event);
+                    }
+                }
+            );
+        }
+    }
+
+
+    function start() {
+
+        decorateActivityCards();
+
+
+        /*
+         * Activity updates live, so decorate newly-created
+         * cards automatically too.
+         */
+
+        const observer =
+            new MutationObserver(
+                decorateActivityCards
+            );
+
+
+        observer.observe(
+            document.body,
+            {
+                childList: true,
+                subtree: true
+            }
+        );
+    }
+
+
+    if (
+        document.readyState ===
+        "loading"
+    ) {
+
+        document.addEventListener(
+            "DOMContentLoaded",
+            start,
+            { once: true }
+        );
+    }
+    else {
+
+        start();
+    }
+})();
 </script>
 </body>
 </html>
