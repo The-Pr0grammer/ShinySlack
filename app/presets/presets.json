@@ -1,29 +1,36 @@
 {
-    "version":  1,
+    "version":  2,
     "presets":  [
                     {
                         "id":  "boop-71dfa059",
                         "name":  "Boop",
                         "fileName":  "boop-71dfa059.mp3",
-                        "sha256":  "71dfa0595ac25f1b3f2ad8469654877e16d4a5cfaaca105ce88a73e06757c3e7"
+                        "sha256":  "36250f6ca99dd7efc743f4be8d640a70b01472f2adcd5c4ac1bc9cdf3fa0a3e3"
                     },
                     {
                         "id":  "fahhh-21994c56",
                         "name":  "Fahhh",
                         "fileName":  "fahhh-21994c56.mp3",
-                        "sha256":  "21994c560d583f2c8b166ae16d5eab7fc5b925505e1ba93d7681543ebe443c08"
+                        "sha256":  "1cbf381c7cb3a310c1767fa70e742e217d39993af7554a99127677fa7ebfdfbd"
                     },
                     {
                         "id":  "kamehameha-563f3e54",
                         "name":  "Kamehameha",
                         "fileName":  "kamehameha-563f3e54.mp3",
-                        "sha256":  "563f3e543cbbf35044426739a08714e9f80f6d5418468bbb8b332afc27369556"
+                        "sha256":  "c535147d379721bf959787fe749070ae4139ccb14599f16af3e35c67352b6964"
                     },
                     {
                         "id":  "patrick-wee-woo-1-da699b37",
                         "name":  "Patrick Wee Woo 1",
                         "fileName":  "patrick-wee-woo-1-da699b37.mp3",
-                        "sha256":  "da699b37521d1679064f24191ea902607dc98a6c116d7784d243cc5dc9c03d97"
+                        "sha256":  "8173ece7134885439bde9fa21956b7ddaee2da427425280f3e93ba77a6af8183"
                     }
-                ]
+                ],
+    "mastering":  {
+                      "targetLufs":  -18,
+                      "truePeakDb":  -1.5,
+                      "loudnessRange":  7,
+                      "method":  "ffmpeg loudnorm",
+                      "masteredAt":  "2026-11-21T14:34:08.5008588-08:00"
+                  }
 }
