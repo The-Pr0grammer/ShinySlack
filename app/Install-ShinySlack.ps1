@@ -1,4 +1,4 @@
-﻿param(
+param(
     [Parameter(Mandatory=$true, Position=0)]
     [string]$Mp3Path,
     [int]$PollSeconds = 15,
@@ -76,7 +76,7 @@ Copy-Item $sourceMp3 (Join-Path $root 'custom.mp3') -Force
 Set-Content (Join-Path $root 'agent.version') 'V16' -Encoding ASCII
 
 # Persist the current web build with the installed app.
-foreach ($webName in @('ShinySlack-Web.ps1','ShinySlack-Operation.ps1','index.html','Start-ShinySlack.cmd','Start-ShinySlack.ps1','Install-ShinySlack.ps1')) {
+foreach ($webName in @('ShinySlack-Web.ps1','ShinySlack-Operation.ps1','index.html','Start-ShinySlack.cmd','Start-ShinySlack.ps1','Start-ShinySlack-Background.ps1','Install-ShinySlack.ps1','version.txt')) {
     $webSrc = Join-Path $PSScriptRoot $webName
     if (Test-Path $webSrc) { Copy-ShinyFileIfNeeded -Source $webSrc -Destination (Join-Path $root $webName) }
 }
