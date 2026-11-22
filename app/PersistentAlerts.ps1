@@ -2104,145 +2104,55 @@ function Render-Expanded {
             $rail.Add_Click($openSlack)
             # -------------------------------------------------
             # CHANNEL - canonical Activity visual identity
+            # Real WinForms label; do not custom-paint notification text.
+            # SHINY-DECK-CHANNEL-LABEL-V2
             # -------------------------------------------------
 
-            $channelText =
+            $channel =
+                New-Object System.Windows.Forms.Label
+
+            $channel.Left =
+                14
+
+            $channel.Top =
+                12
+
+            $channel.Width =
+                240
+
+            $channel.Height =
+                38
+
+            $channel.Text =
                 [string]$a.Channel
 
-            $channelAccent =
+            $channel.TextAlign =
+                'MiddleLeft'
+
+            $channel.AutoEllipsis =
+                $true
+
+            $channel.BackColor =
+                [Drawing.Color]::Transparent
+
+            $channel.ForeColor =
                 $accent
 
-            $paintChannel = {
-
-                param(
-                    $sender,
-                    $paintArgs
+            $channel.Font =
+                New-Object Drawing.Font(
+                    'Segoe UI',
+                    11.25,
+                    [Drawing.FontStyle]::Bold
                 )
 
-                $g =
-                    $paintArgs.Graphics
+            $channel.Tag =
+                $a.Channel
 
-                $g.SmoothingMode =
-                    [Drawing.Drawing2D.SmoothingMode]::AntiAlias
+            $channel.Cursor =
+                [Windows.Forms.Cursors]::Hand
 
-                $g.TextRenderingHint =
-                    [Drawing.Text.TextRenderingHint]::ClearTypeGridFit
-
-
-                # Activity uses 15px/800. At 96 DPI that is 11.25pt.
-                $fontSize =
-                    if($channelText.Length -gt 28){
-                        9.75
-                    }
-                    elseif($channelText.Length -gt 22){
-                        10.5
-                    }
-                    else {
-                        11.25
-                    }
-
-
-                $font =
-                    New-Object Drawing.Font(
-                        'Segoe UI',
-                        $fontSize,
-                        [Drawing.FontStyle]::Bold
-                    )
-
-
-                $format =
-                    New-Object Drawing.StringFormat
-
-                $format.Alignment =
-                    [Drawing.StringAlignment]::Near
-
-                $format.LineAlignment =
-                    [Drawing.StringAlignment]::Center
-
-                $format.Trimming =
-                    [Drawing.StringTrimming]::EllipsisCharacter
-
-                $format.FormatFlags =
-                    [Drawing.StringFormatFlags]::NoWrap
-
-
-                $rect =
-                    New-Object Drawing.RectangleF(
-                        14,
-                        0,
-                        240,
-                        ($script:AlertVisual.CardHeight - 2)
-                    )
-
-
-                $main =
-                    New-Object Drawing.SolidBrush(
-                        $channelAccent
-                    )
-
-
-                # Mirrors Activity's subtle inset accent presence.
-                $washRect =
-                    New-Object Drawing.Rectangle(
-                        4,
-                        0,
-                        28,
-                        ($script:AlertVisual.CardHeight - 2)
-                    )
-
-
-                $wash =
-                    New-Object Drawing.Drawing2D.LinearGradientBrush(
-                        $washRect,
-                        (
-                            [Drawing.Color]::FromArgb(
-                                28,
-                                $channelAccent.R,
-                                $channelAccent.G,
-                                $channelAccent.B
-                            )
-                        ),
-                        (
-                            [Drawing.Color]::FromArgb(
-                                0,
-                                $channelAccent.R,
-                                $channelAccent.G,
-                                $channelAccent.B
-                            )
-                        ),
-                        [Drawing.Drawing2D.LinearGradientMode]::Horizontal
-                    )
-
-
-                try {
-
-                    $g.FillRectangle(
-                        $wash,
-                        $washRect
-                    )
-
-
-                    $g.DrawString(
-                        $channelText,
-                        $font,
-                        $main,
-                        $rect,
-                        $format
-                    )
-                }
-                finally {
-
-                    $font.Dispose()
-                    $format.Dispose()
-                    $main.Dispose()
-                    $wash.Dispose()
-                }
-
-            }.GetNewClosure()
-
-
-            $card.Add_Paint(
-                $paintChannel
+            $channel.Add_Click(
+                $openSlack
             )
 
 
@@ -2329,8 +2239,14 @@ function Render-Expanded {
 
 
             $card.Controls.Add($rail)
+            $card.Controls.Add($channel)
             $card.Controls.Add($time)
             $card.Controls.Add($x)
+
+            # Keep the accent rail visually above the transparent label.
+            $rail.BringToFront()
+            $time.BringToFront()
+            $x.BringToFront()
 
             $shell.Controls.Add($card)
             $content.Controls.Add($shell)
