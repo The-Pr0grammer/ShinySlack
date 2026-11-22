@@ -40,7 +40,12 @@ $script:DeckScrollOffset =
 
 # SHINY-DECK-FINISH-RESIZE-DIRECTION-V1
 $script:DeckWidth = 460
-$script:DeckHeight = 0  # zero = fit content until manually resized
+$script:DeckHeight = 0  # zero = content-driven height
+# SHINY-DECK-THREE-WAY-GROWTH-V1
+# auto: grow with alerts; once: reset to one card, release on next arrival;
+# locked: always show one card with overflow scrolling.
+$script:DeckGrowthMode = 'auto'
+$script:DeckGrowthArmedCount = 0
 $script:ExpansionDirection = 'down'
 $script:LastLayoutDirection = 'tucked'
 $script:OverrideAnchorY = $null
@@ -424,21 +429,99 @@ $script:DeckHoverHelp.AutoPopDelay = 10000
 $script:DeckHoverHelp.InitialDelay = 450
 $script:DeckHoverHelp.ReshowDelay = 150
 $script:DeckHoverHelp.ShowAlways = $true
-# SHINY-DECK-EXPLICIT-HOVER-V5
+# SHINY-DECK-HOVER-RESET-V8
+# A hidden/reopened deck rebuilds every header/card control. Give those new
+# controls a new native ToolTip instance instead of retaining the old HWND state.
+function Reset-DeckHoverHelp {
+    try {
+        if($script:DeckHoverHelp){
+            $script:DeckHoverHelp.RemoveAll()
+            $script:DeckHoverHelp.Dispose()
+        }
+    } catch {}
+    $script:DeckHoverHelp = New-Object System.Windows.Forms.ToolTip
+    $script:DeckHoverHelp.AutoPopDelay = 10000
+    $script:DeckHoverHelp.InitialDelay = 350
+    $script:DeckHoverHelp.ReshowDelay = 100
+    $script:DeckHoverHelp.ShowAlways = $true
+    $script:DeckHoverHelp.Active = $true
+}
+# SHINY-DECK-EXPLICIT-HOVER-V7
+# Show help as soon as the cursor enters a control. Rebuilt WinForms controls
+# each receive their own stable callback; the native tooltip remains a fallback.
+# SHINY-DECK-POPUP-HOVER-V11
+# A lightweight hover-only popup survives hide/reopen and control re-rendering.
+# The help is visible immediately on MouseEnter and never requires a click.
+$script:DeckHoverPopup = $null
+function Hide-DeckHoverPopup {
+    try {
+        if($null -ne $script:DeckHoverPopup){
+            $script:DeckHoverPopup.Hide()
+            $script:DeckHoverPopup.Dispose()
+            $script:DeckHoverPopup = $null
+        }
+    } catch { $script:DeckHoverPopup = $null }
+}
+function Show-DeckHoverPopup {
+    param($Control)
+    if(!$Control -or $Control.IsDisposed -or !$form.Visible){ return }
+    $description = [string]$Control.AccessibleDescription
+    if([string]::IsNullOrWhiteSpace($description)){ return }
+    Hide-DeckHoverPopup
+    try {
+        $popup = New-Object System.Windows.Forms.ToolStripDropDown
+        $popup.AutoClose = $false
+        $popup.AutoSize = $true
+        $popup.Padding = New-Object System.Windows.Forms.Padding(5)
+        $popup.BackColor = [Drawing.Color]::FromArgb(19,25,38)
+        $popup.ForeColor = [Drawing.Color]::White
+
+        $label = New-Object System.Windows.Forms.Label
+        $label.AutoSize = $false
+        $label.Size = New-Object Drawing.Size(380,44)
+        $label.BackColor = [Drawing.Color]::FromArgb(19,25,38)
+        $label.ForeColor = [Drawing.Color]::White
+        $label.Font = New-Object Drawing.Font('Segoe UI',9)
+        $label.TextAlign = [Drawing.ContentAlignment]::MiddleLeft
+        $label.Text = $description
+
+        $hostItem = New-Object System.Windows.Forms.ToolStripControlHost -ArgumentList @($label)
+        $hostItem.Margin = New-Object System.Windows.Forms.Padding(0)
+        $hostItem.Padding = New-Object System.Windows.Forms.Padding(0)
+        [void]$popup.Items.Add($hostItem)
+        $popup.PerformLayout()
+
+        $size = $popup.GetPreferredSize([Drawing.Size]::Empty)
+        $work = [Windows.Forms.Screen]::FromControl($Control).WorkingArea
+        $x = [int][Math]::Max($work.Left+8,[Math]::Min($work.Right-$size.Width-8,[Windows.Forms.Cursor]::Position.X-[int]($size.Width/2)))
+        $headerY = if($script:Tucked){$form.Top}else{ if($script:ExpansionDirection -eq 'up'){$form.Bottom-40}else{$form.Top} }
+        $above = [int]($headerY - $size.Height - 8)
+        $below = [int]($headerY + 44)
+        $y = if($above -ge $work.Top+6){$above}else{$below}
+        $y = [int][Math]::Max($work.Top+6,[Math]::Min($work.Bottom-$size.Height-6,$y))
+        $script:DeckHoverPopup = $popup
+        $popup.Show((New-Object Drawing.Point($x,$y)))
+    } catch {
+        # A presentation failure must never interrupt the notification engine.
+        try {
+            [IO.File]::AppendAllText((Join-Path $root 'deck-hover-help.log'), $_.Exception.Message + [Environment]::NewLine)
+        } catch {}
+        Hide-DeckHoverPopup
+    }
+}
 function Set-DeckHoverDescriptor {
     param($Control,[string]$HelpText)
-    if(!$Control){return}
-    $script:DeckHoverHelp.SetToolTip($Control,$HelpText)
-    $textForHover = $HelpText
-    $Control.Add_MouseHover({
+    if(!$Control){ return }
+    $Control.AccessibleDescription = [string]$HelpText
+    $Control.Add_MouseEnter({
         param($sender,$eventArgs)
-        try {
-            $script:DeckHoverHelp.Show($textForHover,$sender,0,-30,5000)
-        } catch {}
-    }.GetNewClosure())
+        Show-DeckHoverPopup $sender
+    })
     $Control.Add_MouseLeave({
-        param($sender,$eventArgs)
-        try {$script:DeckHoverHelp.Hide($sender)} catch {}
+        Hide-DeckHoverPopup
+    })
+    $Control.Add_MouseDown({
+        Hide-DeckHoverPopup
     })
 }
 # SHINY-DECK-LIFECYCLE-V6
@@ -540,6 +623,7 @@ function Save-DeckPosition {
 
                 width = [int]$script:DeckWidth
                 height = [int]$script:DeckHeight
+                growthMode = [string]$script:DeckGrowthMode
                 direction = [string]$script:ExpansionDirection
                 savedAt =
                     (Get-Date).ToString('o')
@@ -599,6 +683,17 @@ function Position-Form {
                     }
                     if([string]$saved.direction -in @('up','down')){
                         $script:ExpansionDirection = [string]$saved.direction
+                    }
+                    if([string]$saved.growthMode -in @('auto','once','locked')){
+                        $script:DeckGrowthMode = [string]$saved.growthMode
+                        if($script:DeckGrowthMode -eq 'once'){
+                            $script:DeckGrowthArmedCount = [int]$script:NextId
+                        }
+                        if($script:DeckGrowthMode -eq 'auto'){
+                            # A height saved by manual dragging is temporary.
+                            # The next new alert releases it back to auto growth.
+                            if($script:DeckHeight -gt 0){ $script:DeckGrowthArmedCount = [int]$script:NextId }
+                        }
                     }
 $loaded =
                         $true
@@ -1688,6 +1783,10 @@ $script:DeckResizePoller.Add_Tick({
         if($w -eq $script:DeckWidth -and $h -eq $form.Height){return}
         $script:DeckWidth = $w
         $script:DeckHeight = $h
+        # A manual resize remains in place until a new alert arrives.
+        # It never silently locks the deck into one-card mode.
+        $script:DeckGrowthMode = 'auto'
+        $script:DeckGrowthArmedCount = [int]$script:NextId
         $script:OverrideAnchorY = [int]$session.Anchor
         # Recreate cards, scrollbar and controls at the new dimensions.
         Render-Expanded
@@ -2032,25 +2131,55 @@ function Render-Expanded {
             $closeAll
         )
         # SHINY-DECK-COMPACT-V5
-        # Compact resets the deck to one alert-card height; overflow remains scrollable.
-        $compact = New-Button '1' 28
+        # SHINY-DECK-THREE-WAY-GROWTH-V1
+        # Cycle: auto -> one-card reset (once) -> one-card lock -> auto.
+        $compactLabel = switch($script:DeckGrowthMode){
+            'once'   { '1' }
+            'locked' { '1L' }
+            default  { 'A' }
+        }
+        $compact = New-Button $compactLabel 28
         $compact.Left = $script:DeckWidth - 198
         $compact.Top = 6
         $compact.Height = 28
         $compact.ForeColor = $script:AlertVisual.DefaultAccent
-        $compact.Tag = 'Reset deck to one-card compact size'
         Set-RoundedRegion $compact 8
         $compact.Add_Click({
             $anchor = if($script:ExpansionDirection -eq 'up'){$form.Bottom - 40}else{$form.Top}
-            $script:DeckWidth = 460
-            $script:DeckHeight = [int][Math]::Max(110,($script:AlertVisual.CardHeight + 52))
+            switch($script:DeckGrowthMode){
+                'auto' {
+                    # Reset once: fit one card until a NEW alert arrives.
+                    $script:DeckGrowthMode = 'once'
+                    $script:DeckGrowthArmedCount = [int]$script:NextId
+                    $script:DeckWidth = 460
+                    $script:DeckHeight = [int][Math]::Max(110,($script:AlertVisual.CardHeight + 52))
+                    $script:DeckScrollOffset = 0
+                }
+                'once' {
+                    # Lock the one-card viewport. Keep all alerts scrollable.
+                    $script:DeckGrowthMode = 'locked'
+                    $script:DeckWidth = 460
+                    $script:DeckHeight = [int][Math]::Max(110,($script:AlertVisual.CardHeight + 52))
+                    $script:DeckScrollOffset = 0
+                }
+                default {
+                    # Disable one-card mode and fit all current alerts.
+                    $script:DeckGrowthMode = 'auto'
+                    $script:DeckHeight = 0
+                    $script:DeckScrollOffset = 0
+                }
+            }
             $script:OverrideAnchorY = [int]$anchor
-            $script:DeckScrollOffset = 0
             Render-Expanded
             Save-DeckPosition
         })
         $header.Controls.Add($compact)
-        Set-DeckHoverDescriptor $compact 'Reset to one-card compact size (keep all alerts; scroll for more)'
+        $compactHelp = switch($script:DeckGrowthMode){
+            'once'   { 'One-card reset: next new alert restores automatic growth. Click to lock one card.' }
+            'locked' { 'One-card LOCKED: new alerts scroll instead of expanding. Click for Auto.' }
+            default  { 'AUTO: grow naturally with new alerts. Click to reset to one card once.' }
+        }
+        Set-DeckHoverDescriptor $compact $compactHelp
         $header.Controls.Add($direction)
         $header.Controls.Add($resizeGrip)
 
@@ -2871,6 +3000,22 @@ function Add-Alert {
         [void]$script:Alerts.Remove($old)
     }
 
+    # SHINY-DECK-THREE-WAY-GROWTH-V1
+    # A new alert releases the temporary one-card reset, but not a lock.
+    if($script:DeckGrowthMode -eq 'once'){
+        if($script:NextId -gt $script:DeckGrowthArmedCount){
+            $script:DeckGrowthMode = 'auto'
+            $script:DeckHeight = 0
+            $script:DeckScrollOffset = 0
+            Save-DeckPosition
+        }
+    }elseif($script:DeckGrowthMode -eq 'auto' -and $script:DeckHeight -gt 0){
+        # Resized custom height is temporary; grow naturally on the next alert.
+        $script:DeckHeight = 0
+        $script:DeckScrollOffset = 0
+        Save-DeckPosition
+    }
+
     Render
 }
 
@@ -2970,7 +3115,11 @@ $timer.Add_Tick({
                 }
                 $script:DeckHiddenAt=$null
             }
+            Hide-DeckHoverPopup
             if (-not $form.Visible) {
+                # Closing the deck can invalidate the native tooltip window.
+                # Reset it before controls are reconstructed by Render.
+                Reset-DeckHoverHelp
                 Render
             }
             if ($form.Visible) {
