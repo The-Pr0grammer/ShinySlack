@@ -151,7 +151,7 @@ $script:AlertVisual =
             9
 
         RailWidth =
-            4
+            6
     }
 
 
@@ -2047,8 +2047,12 @@ function Render-Expanded {
             $shell.Width = 390
             $shell.Height = $script:AlertVisual.CardHeight
 
-            $shell.BackColor =
-                $script:AlertVisual.Border
+$shell.BackColor =
+                [Drawing.Color]::FromArgb(
+                    [int][Math]::Round(37 * 0.66 + $accent.R * 0.34),
+                    [int][Math]::Round(44 * 0.66 + $accent.G * 0.34),
+                    [int][Math]::Round(58 * 0.66 + $accent.B * 0.34)
+                )
 
             $shell.Tag = $a.Channel
             $shell.Cursor =
@@ -2771,6 +2775,26 @@ $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 250
 
 $timer.Add_Tick({
+    # SHINY-DECK-SHOW-REQUEST-275-V1
+    # Explicit launch request: show the existing hidden form (or bring it forward).
+    # Only the deck handles this request. Router/audio remain untouched.
+    try {
+        $showFile = Join-Path $root 'persistent-alerts-show.request'
+        if (Test-Path -LiteralPath $showFile) {
+            Remove-Item -LiteralPath $showFile -Force -ErrorAction SilentlyContinue
+            if (-not $form.Visible) {
+                if ($script:Alerts.Count -eq 0) { $script:Tucked = $true }
+                Render
+            }
+            if ($form.Visible) {
+                $form.BringToFront()
+                [void]$form.Activate()
+            }
+        }
+    } catch {
+        # Never let a presentation-only request interrupt notification polling.
+    }
+
     Read-Settings
     Read-NewLines
 

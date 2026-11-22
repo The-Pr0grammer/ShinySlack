@@ -2726,7 +2726,7 @@ $listener=$null}}
                     Write-WebDiag 'Checking GitHub for ShinySlack updates.' $rid
 
                     $versionPath = Join-Path $script:SourceDir 'version.txt'
-                    $currentVersion = 'v2.0.0-beta.1'
+                    $currentVersion = 'v2.7.5'
 
                     if(Test-Path -LiteralPath $versionPath) {
                         $readVersion = (

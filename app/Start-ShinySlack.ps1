@@ -73,6 +73,16 @@ function Ensure-ShinySlackVisualAlerts {
             )
 
 
+        # SHINY-DECK-SHOW-REQUEST-275-V1
+        # The deck process can be healthy while its borderless form is hidden.
+        # A launcher request wakes the existing UI without starting a second copy.
+        try {
+            [IO.File]::WriteAllText(
+                (Join-Path $stateRoot 'persistent-alerts-show.request'),
+                (Get-Date).ToString('o'),
+                (New-Object System.Text.UTF8Encoding($false))
+            )
+        } catch {}
         if($existing.Count -gt 0){
             return
         }
