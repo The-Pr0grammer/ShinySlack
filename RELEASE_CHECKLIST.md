@@ -1,6 +1,6 @@
 # ShinySlack beta release checklist
 
-For v2.7.6: verify the three deck growth states, resize, hover help after hide/reopen, the dashboard Open Deck control, the installer hash, and Check for Updates from a v2.7.5 installation.
+For v2.7.7: verify the three deck growth states, resize, hover help after hide/reopen, the dashboard Open Deck control, the installer hash, and Check for Updates from a v2.7.5 installation.
 
 - [ ] Confirm V16 all-green dashboard on the development machine.
 - [ ] Confirm `app/` PowerShell parser validation passes in GitHub Actions.
