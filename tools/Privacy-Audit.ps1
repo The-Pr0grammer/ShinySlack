@@ -70,14 +70,14 @@ if(
     $web -notmatch
     '\$script:HistoryFeatureEnabled\s*=\s*\$false'
 ){
-    Fail 'History API is not hard-disabled for v2.7.5.'
+    Fail 'History API is not hard-disabled for v2.7.6.'
 }
 
 if(
     $history -notmatch
     'SHINY-PRIVACY-HISTORY-WORKER-DISABLED-275-V1'
 ){
-    Fail 'History worker is not disabled for v2.7.5.'
+    Fail 'History worker is not disabled for v2.7.6.'
 }
 
 if(
@@ -521,7 +521,7 @@ Write-Host ''
 Write-Host 'SHINYSLACK PRIVACY AUDIT: PASS' -ForegroundColor Green
 Write-Host ' - Web server: loopback-only' -ForegroundColor Green
 Write-Host ' - Web API token: cryptographic RNG' -ForegroundColor Green
-Write-Host ' - History API/worker: disabled for v2.7.5' -ForegroundColor Green
+Write-Host ' - History API/worker: disabled for v2.7.6' -ForegroundColor Green
 Write-Host ' - Live message text: SHA-256 dedupe only, not persisted' -ForegroundColor Green
 Write-Host ' - Runtime/private files: not tracked' -ForegroundColor Green
 Write-Host ' - Slack token patterns: none detected in audited Git content' -ForegroundColor Green

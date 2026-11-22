@@ -2,9 +2,9 @@
 
 ## Is my privacy protected?
 
-**ShinySlack v2.7.5 is designed to keep Slack notification data local, and the v2.7.5 privacy audit passes before the release can be committed.**
+**ShinySlack v2.7.6 is designed to keep Slack notification data local, and the v2.7.6 privacy audit passes before the release can be committed.**
 
-The live Router uses Windows UI Automation to identify Slack's built-in notification surface. It needs the Slack channel label for routing. Slack's accessibility tree can also expose notification message text. In v2.7.5, ShinySlack reads that text only long enough to compute a SHA-256 deduplication fingerprint. The raw message string is not written to the Router log, Activity, configuration, the notification deck, or Git. ShinySlack does not intentionally parse or persist a sender/author field.
+The live Router uses Windows UI Automation to identify Slack's built-in notification surface. It needs the Slack channel label for routing. Slack's accessibility tree can also expose notification message text. In v2.7.6, ShinySlack reads that text only long enough to compute a SHA-256 deduplication fingerprint. The raw message string is not written to the Router log, Activity, configuration, the notification deck, or Git. ShinySlack does not intentionally parse or persist a sender/author field.
 
 Some metadata is intentionally stored locally because the product needs it. `%LOCALAPPDATA%\ShinySlack` can contain channel route names, local sound paths, linked Slack team/channel IDs used for native deep links, visual-alert settings, and Router event logs containing channel/sound/backend metadata. Those files are runtime state, not source code.
 
@@ -12,31 +12,31 @@ ShinySlack's dashboard binds to Windows loopback only (`127.0.0.1` / localhost),
 
 The app can contact GitHub to check published ShinySlack release metadata. That update request does not include Slack channel data, message bodies, sender data, or local configuration.
 
-Notification-history recovery is **disabled in v2.7.5**. The dashboard does not accept a Slack API token, and the history worker exits immediately. History will return only after the v2.8 privacy, retention, and consent model is explicitly designed.
+Notification-history recovery is **disabled in v2.7.6**. The dashboard does not accept a Slack API token, and the history worker exits immediately. History will return only after the v2.8 privacy, retention, and consent model is explicitly designed.
 
 Git is guarded in three layers:
 
 1. Private runtime filenames and directories are excluded by `.gitignore`.
 2. The repository uses a pre-commit privacy audit that blocks known runtime-state files and Slack-style token patterns.
-3. The v2.7.5 audit compares the real channel names, team IDs, and channel IDs in the local `channel-routes.json` against tracked repository content. The release commit is blocked if a local identifier is found.
+3. The v2.7.6 audit compares the real channel names, team IDs, and channel IDs in the local `channel-routes.json` against tracked repository content. The release commit is blocked if a local identifier is found.
 
-**v2.7.5 audit outcome: PASS is required for commit.** The hardening release is not committed if any of the checks above fail.
+**v2.7.6 audit outcome: PASS is required for commit.** The hardening release is not committed if any of the checks above fail.
 
 This is not a sandbox against malware or another process already running as the same Windows user. A malicious same-user process could potentially inspect local files or process memory. ShinySlack's privacy controls are intended to prevent accidental persistence, network exposure, and Git/source-control leakage of Slack notification data.
 
 ## Does ShinySlack store message bodies?
 
-No. In v2.7.5, accessible notification text may be read transiently to calculate a SHA-256 deduplication fingerprint. Only the hash is retained briefly in memory for duplicate suppression. Raw message text is not persisted.
+No. In v2.7.6, accessible notification text may be read transiently to calculate a SHA-256 deduplication fingerprint. Only the hash is retained briefly in memory for duplicate suppression. Raw message text is not persisted.
 
 ## Does ShinySlack know who sent a message?
 
-ShinySlack v2.7.5 does not intentionally extract or store a sender/author field. Slack controls the accessibility strings exposed by its desktop notification UI, so the Router treats accessible message text as opaque input and hashes it immediately.
+ShinySlack v2.7.6 does not intentionally extract or store a sender/author field. Slack controls the accessibility strings exposed by its desktop notification UI, so the Router treats accessible message text as opaque input and hashes it immediately.
 
 ## Are my Slack channel names or IDs uploaded to GitHub?
 
 No application feature uploads them to GitHub. Channel routing and deep-link metadata live under `%LOCALAPPDATA%\ShinySlack`.
 
-The v2.7.5 Git privacy audit also checks the real local channel names, team IDs, and channel IDs against tracked repository files and fails the release commit if one is found.
+The v2.7.6 Git privacy audit also checks the real local channel names, team IDs, and channel IDs against tracked repository files and fails the release commit if one is found.
 
 ## What data does ShinySlack keep locally?
 
@@ -54,13 +54,13 @@ These are stored under `%LOCALAPPDATA%\ShinySlack` and are excluded from Git sou
 
 ## Does ShinySlack send telemetry?
 
-No. v2.7.5 has no ShinySlack telemetry service.
+No. v2.7.6 has no ShinySlack telemetry service.
 
 The dashboard can make a GitHub API request when checking for ShinySlack updates. That request retrieves public release information and does not send Slack data.
 
-## Does v2.7.5 access Slack message history?
+## Does v2.7.6 access Slack message history?
 
-No. Offline/history recovery is intentionally disabled in v2.7.5.
+No. Offline/history recovery is intentionally disabled in v2.7.6.
 
 The v2.8 goal is to recover supported notification/activity history after the laptop was asleep or powered off, but that work will not proceed until its privacy model defines exactly what is fetched, what is stored, retention, consent, and deletion behavior.
 
@@ -68,7 +68,7 @@ The v2.8 goal is to recover supported notification/activity history after the la
 
 No. Engine V17 detects **Slack's built-in desktop notifications** using Slack-owned Windows accessibility elements. Those notifications can be detected anywhere on any connected monitor.
 
-Windows Notification Center / Action Center is a separate notification surface and is not supported in v2.7.5.
+Windows Notification Center / Action Center is a separate notification surface and is not supported in v2.7.6.
 
 ## Why does ShinySlack need the channel name?
 

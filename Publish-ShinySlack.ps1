@@ -1,6 +1,6 @@
 param(
     [string]$RepoName = 'ShinySlack',
-    [string]$Version = 'v0.1.0-beta'
+    [string]$Version = 'v2.7.6'
 )
 $ErrorActionPreference='Stop'
 
@@ -40,7 +40,7 @@ $repoExists=$false
 if($LASTEXITCODE -eq 0){$repoExists=$true}
 
 if(!$repoExists){
-    & gh repo create $full --public --source . --remote origin --push --description "Custom Slack notification sounds for Windows - local-only cache patcher"
+    & gh repo create $full --public --source . --remote origin --push --description "Local-first Slack notification sounds, routing, alerts and Activity for Windows"
     if($LASTEXITCODE -ne 0){throw 'GitHub repository creation failed.'}
 }else{
     $origin=& git remote get-url origin 2>$null

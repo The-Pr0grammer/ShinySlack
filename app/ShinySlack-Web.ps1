@@ -34,7 +34,7 @@ finally {
 $script:Root = Join-Path $env:LOCALAPPDATA 'ShinySlack'
 $script:SourceDir = $PSScriptRoot
 $script:Build = 'V17'
-$script:HistoryFeatureEnabled = $false # v2.7.5 privacy baseline
+$script:HistoryFeatureEnabled = $false # v2.7.6 privacy baseline
 $script:TraceLog = Join-Path $script:Root 'web-trace.log'
 
 function Write-WebDiag {
@@ -1097,7 +1097,7 @@ function Get-HistoryBackfillStatus {
             0
 
         lastError =
-            'History is disabled in v2.7.5 pending the v2.8 privacy design.'
+            'History is disabled in v2.7.6 pending the v2.8 privacy design.'
     }
 }
 
@@ -2754,7 +2754,7 @@ $listener=$null}}
                     Write-WebDiag 'Checking GitHub for ShinySlack updates.' $rid
 
                     $versionPath = Join-Path $script:SourceDir 'version.txt'
-                    $currentVersion = 'v2.7.5'
+                    $currentVersion = 'v2.7.6'
 
                     if(Test-Path -LiteralPath $versionPath) {
                         $readVersion = (
@@ -3620,7 +3620,7 @@ Json-Response $client @{
                         $false
 
                     error =
-                        'Notification history is disabled in v2.7.5 pending the v2.8 privacy design.'
+                        'Notification history is disabled in v2.7.6 pending the v2.8 privacy design.'
                 } 409
 
                 continue

@@ -6,7 +6,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 # SHINY-PRIVACY-HISTORY-WORKER-DISABLED-275-V1
-Write-Host 'ShinySlack notification history is disabled in v2.7.5.'
+Write-Host 'ShinySlack notification history is disabled in v2.7.6.'
 Write-Host 'The worker will be redesigned under the v2.8 privacy model.'
 exit 0
 

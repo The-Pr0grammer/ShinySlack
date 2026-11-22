@@ -2,6 +2,8 @@
 
 ## Release path
 
+Current maintenance release: **v2.7.6**. Preserve the existing v2.7.5 tag/assets; publish a new tag from the same tested main HEAD.
+
 ShinySlack's public user flow is:
 
 1. GitHub Pages landing page.

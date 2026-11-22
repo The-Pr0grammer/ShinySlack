@@ -2,6 +2,8 @@
 
 **Your Slack. Your sound. Your alerts.**
 
+**Current Windows release: v2.7.6.** Previous v2.7.5 installers remain archived under their original release tag.
+
 ShinySlack is a local-first Windows companion for Slack Desktop. It adds custom notification sounds, per-channel routing, a persistent visual alert deck, native Slack deep links, and a live Activity feed without sending your notification data to a ShinySlack server.
 
 > **Beta:** ShinySlack is unofficial and not affiliated with Slack or Salesforce. Use it only where your device and workplace policy allow it.
@@ -48,7 +50,7 @@ ShinySlack's live detector follows Slack's own desktop notification windows acro
 - Per-channel notification sounds.
 - Built-in mastered sound preset library.
 - Universal ShinySlack volume control.
-- Persistent visual alert deck with drag/tuck controls.
+- Persistent, resizable visual alert deck with up/down expansion, three growth modes (Auto / Reset once / Lock one card), compact reset, and hover help.
 - Native deep links back into Slack Desktop for linked channels.
 - Low-latency live Activity feed.
 - Local sound-ownership safety/fallback controls.
@@ -59,7 +61,7 @@ Offline notification-history recovery while the PC is asleep/off is still under 
 
 ## Privacy
 
-The v2.7.5 privacy baseline established these guarantees for the current live-notification path:
+The privacy baseline established in v2.7.5 remains enforced in v2.7.6:
 
 - The dashboard server binds to Windows loopback only.
 - Dashboard API authentication uses a cryptographically generated per-process token.
@@ -115,7 +117,7 @@ Release tags must point at `main` HEAD and match `app/version.txt`. A tagged rel
 4. generates `ShinySlackSetup.exe.sha256`; and
 5. publishes both files to the GitHub Release.
 
-The landing page discovers the newest non-draft GitHub Release, including prereleases, and links directly to the installer asset when one exists.
+The landing page and dashboard update checker use published GitHub Release metadata. The landing page links to the newest release with a real ShinySlackSetup.exe asset; the dashboard compares its installed version with the latest published version.
 
 ## Attribution
 

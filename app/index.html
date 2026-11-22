@@ -839,9 +839,9 @@ button[data-ss-tip]:hover{
         <div
           id="historyRecoveryStatus"
           data-ss-tip-title="Offline Recovery"
-          data-ss-tip="Notification history is intentionally disabled in v2.7.5 while the v2.8 privacy and retention model is designed."
+          data-ss-tip="Notification history is intentionally disabled in v2.7.6 while the v2.8 privacy and retention model is designed."
         >
-          Disabled in v2.7.5 | planned for v2.8
+          Disabled in v2.7.6 | planned for v2.8
         </div>
       </div>
 
@@ -850,7 +850,7 @@ button[data-ss-tip]:hover{
           id="historyConnect"
           disabled
           data-ss-tip-title="History disabled"
-          data-ss-tip="ShinySlack v2.7.5 does not accept Slack API tokens or run history recovery."
+          data-ss-tip="ShinySlack v2.7.6 does not accept Slack API tokens or run history recovery."
         >
           Planned for v2.8
         </button>
@@ -858,7 +858,7 @@ button[data-ss-tip]:hover{
           id="historyBackfill"
           disabled
           data-ss-tip-title="History disabled"
-          data-ss-tip="Backfill is disabled in v2.7.5."
+          data-ss-tip="Backfill is disabled in v2.7.6."
         >
           Backfill disabled
         </button>
@@ -1635,7 +1635,7 @@ function renderHistoryBackfill(h){
   if(h&&h.enabled===false){
 
     statusEl.textContent=
-      'Disabled in v2.7.5 | planned for v2.8';
+      'Disabled in v2.7.6 | planned for v2.8';
 
     if(connect){
       connect.textContent=
