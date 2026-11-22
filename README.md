@@ -2,7 +2,7 @@
 
 **Your Slack. Your sound. Your alerts.**
 
-**Current Windows release: v2.7.7.** Previous v2.7.5 installers remain archived under their original release tag.
+**Current Windows release: v2.7.8.** Previous v2.7.5 installers remain archived under their original release tag.
 
 ShinySlack is a local-first Windows companion for Slack Desktop. It adds custom notification sounds, per-channel routing, a persistent visual alert deck, native Slack deep links, and a live Activity feed without sending your notification data to a ShinySlack server.
 

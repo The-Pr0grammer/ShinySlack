@@ -10,7 +10,7 @@ on:
       version:
         description: 'Version to build'
         required: false
-        default: '2.7.7'
+        default: '2.7.8'
 
 permissions:
   contents: write

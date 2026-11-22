@@ -2489,7 +2489,37 @@ $listener=$null}}
 
                 continue
             }
-            # SHINY-DASHBOARD-OPEN-DECK-V1
+            # SHINY-TEST-SLACKBOT-API-V1
+            # Authenticated loopback API; no user-controlled command or channel.
+            if($req.Method -eq 'POST' -and $req.Path -eq '/api/test/slackbot'){
+                try {
+                    $ownershipPath = Join-Path $script:Root 'sound-ownership.json'
+                    if(!(Test-Path -LiteralPath $ownershipPath)){
+                        throw 'Sound ownership is unavailable. Enable ShinySlack Router first.'
+                    }
+                    $ownership = Get-Content -LiteralPath $ownershipPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                    if([string]$ownership.mode -ne 'routerExclusive'){
+                        throw 'Test Slackbot uses Router audio. Enable ShinySlack Router, then retry.'
+                    }
+                    $audio = Get-ChannelAudioStatus
+                    if(-not [bool]$audio.routerRunning){
+                        throw 'ShinySlack Router is not running. Try Refresh Status first.'
+                    }
+                    $requestPath = Join-Path $script:Root 'test-slackbot.request'
+                    # Write a unique temporary file first and atomically move it into
+                    # the fixed request path. A pending test is never overwritten.
+                    $tempPath = $requestPath + '.' + [guid]::NewGuid().ToString('N') + '.tmp'
+                    try {
+                        [IO.File]::WriteAllText($tempPath,([datetime]::UtcNow).ToString('o'),(New-Object Text.UTF8Encoding($false)))
+                        [IO.File]::Move($tempPath,$requestPath)
+                    } finally { Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue }
+                    Json-Response $client @{ok=$true;queued=$true;message='Slackbot test queued for the local router.'}
+                } catch {
+                    Write-WebException $_ $rid 'Slackbot test request failed'
+                    Json-Response $client @{ok=$false;error=$_.Exception.Message} 409
+                }
+                continue
+            }            # SHINY-DASHBOARD-OPEN-DECK-V1
             if($req.Method -eq 'POST' -and $req.Path -eq '/api/deck/show'){
                 try{
                     $deckScript = Join-Path $script:Root 'PersistentAlerts.ps1'
@@ -2754,7 +2784,7 @@ $listener=$null}}
                     Write-WebDiag 'Checking GitHub for ShinySlack updates.' $rid
 
                     $versionPath = Join-Path $script:SourceDir 'version.txt'
-                    $currentVersion = 'v2.7.7'
+                    $currentVersion = 'v2.7.8'
 
                     if(Test-Path -LiteralPath $versionPath) {
                         $readVersion = (

@@ -411,9 +411,11 @@ function Prime-SoundCache {
 function Play-Sound {
     param(
         [string]$Path,
-        [string]$Reason
+        [string]$Reason,
+        [switch]$SimulatedTest
     )
 
+    $testSuffix = if($SimulatedTest){ ' test=slackbot' } else { '' }
 
     if(
         [string]::IsNullOrWhiteSpace(
@@ -450,9 +452,10 @@ function Play-Sound {
     ){
 
         Write-RouterLog (
-            "{0} sound={1} backend=MUTED" -f
+            "{0} sound={1} backend=MUTED{2}" -f
             $Reason,
-            $name
+            $name,
+            $testSuffix
         )
 
 
@@ -495,9 +498,10 @@ function Play-Sound {
 
         # KEEP THIS EVENT FORMAT STABLE.
         Write-RouterLog (
-            "{0} sound={1} backend=WAV" -f
+            "{0} sound={1} backend=WAV{2}" -f
             $Reason,
-            $name
+            $name,
+            $testSuffix
         )
     }
     catch {
@@ -1146,6 +1150,36 @@ function Find-ChannelForToast {
     return $best
 }
 
+# SHINY-TEST-SLACKBOT-ROUTER-V1
+# A one-shot test is executed inside the existing router so it uses
+# the live route selection, cached sound player, Activity and alert deck.
+# No Slack API calls, no simulated Slack UIA elements, no settings writes.
+$script:SlackbotTestRequest = Join-Path $script:Root 'test-slackbot.request'
+function Invoke-SlackbotTestRequest {
+    if(!(Test-Path -LiteralPath $script:SlackbotTestRequest)){ return }
+    try {
+        $request = [IO.File]::ReadAllText($script:SlackbotTestRequest).Trim()
+        Remove-Item -LiteralPath $script:SlackbotTestRequest -Force -ErrorAction Stop
+        $requestedAt = [datetime]::Parse($request).ToUniversalTime()
+        $age = ([datetime]::UtcNow - $requestedAt).TotalSeconds
+        if($age -lt -2 -or $age -gt 10){
+            Write-RouterLog 'TEST_SLACKBOT_IGNORED stale-request'
+            return
+        }
+        $channel = 'Slackbot'
+        if($script:Routes.ContainsKey($channel)) {
+            $sound = $script:Routes[$channel]
+            $reason = 'ROUTED channel=#Slackbot'
+        } else {
+            $sound = $script:DefaultSound
+            $reason = 'DEFAULT channel=#Slackbot'
+        }
+        Write-RouterLog 'TEST_SLACKBOT_REQUEST accepted'
+        Play-Sound -Path $sound -Reason $reason -SimulatedTest
+    } catch {
+        Write-RouterLog ("TEST_SLACKBOT_ERROR " + $_.Exception.Message)
+    }
+}
 Load-Config
 Prime-SoundCache
 
@@ -1210,6 +1244,7 @@ while($true) {
 
         Reload-ConfigIfChanged
         Cleanup-Players
+        Invoke-SlackbotTestRequest
 
         $now = Get-Date
 

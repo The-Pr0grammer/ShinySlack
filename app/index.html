@@ -868,6 +868,7 @@ button[data-ss-tip]:hover{
       <div class="activityEmpty">No Slack notifications yet.</div>
     </div>
     <div class="actions">
+      <button id="testSlackbot" data-ss-tip-title="Test Slackbot" data-ss-tip="Play the configured #Slackbot route sound and create one simulated Activity/deck alert. No message is sent to Slack.">Test Slackbot</button>
       <button id="openDeck" data-ss-tip-title="Open Alert Deck" data-ss-tip="Show the floating alert deck, or bring it to the front if it is hidden behind another window.">Open Alert Deck</button>
       <button id="shutdown" data-ss-tip-title="Close Dashboard" data-ss-tip="Close only this dashboard. ShinySlack notification sounds, routing, floating alerts, and the background watcher continue running.">Close Dashboard</button>
       <button id="uninstall" data-ss-tip-title="Uninstall ShinySlack" data-ss-tip="Remove ShinySlack&#39;s local app files and watcher. Slack itself is not uninstalled.">Uninstall ShinySlack</button>
@@ -3985,7 +3986,21 @@ if(alertAutoDismiss){
     }
   };
 }
-// SHINY-DASHBOARD-OPEN-DECK-V1
+// SHINY-TEST-SLACKBOT-UI-V1
+$('testSlackbot').onclick=async()=>{
+  const button=$('testSlackbot');
+  button.disabled=true;
+  try{
+    const result=await api('/api/test/slackbot',{method:'POST'});
+    if(result && result.ok){
+      show(true,'Slackbot test queued. Listen for its assigned sound and watch Activity / Alert Deck. This is a simulation; nothing was sent to Slack.');
+      setTimeout(()=>{status().catch(()=>{});},800);
+    }else{
+      show(false,(result && result.error)||'Could not queue Slackbot test.');
+    }
+  }catch(e){show(false,e.message||String(e));}
+  finally{button.disabled=false;}
+};// SHINY-DASHBOARD-OPEN-DECK-V1
 $('openDeck').onclick=async()=>{
   const b=$('openDeck');
   b.disabled=true;
