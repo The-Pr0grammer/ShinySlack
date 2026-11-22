@@ -3325,8 +3325,140 @@ function renderChannelAudio(s){
     box.appendChild(row);
   });
 }
-/* SHINY-ACTIVITY-LIVE-ROUTER-V2 */
-function renderActivity(items){
+/* SHINY-ACTIVITY-KEYED-RECONCILE-V3 */
+let shinyActivityCursor='';
+let shinyActivityGeneration=-1;
+let shinyActivityInitialized=false;
+let shinyActivityInFlight=false;
+
+
+function activityEventKey(n){
+
+  return String(
+    n?.eventKey||
+    [
+      n?.time||'',
+      n?.source||'',
+      n?.sound||''
+    ].join('|')
+  );
+}
+
+
+function createActivityCard(n,key){
+
+  const card=
+    document.createElement('div');
+
+  card.className=
+    'activityItem';
+
+  card.dataset.eventKey=
+    key;
+
+
+  const accent=
+    (
+      typeof n.accent==='string' &&
+      /^#[0-9a-f]{6}$/i.test(n.accent)
+    )
+      ? n.accent
+      : '#55d8ff';
+
+
+  card.style.setProperty(
+    '--activityAccent',
+    accent
+  );
+
+
+  const top=
+    document.createElement('div');
+
+  top.className=
+    'activityTop';
+
+
+  const source=
+    document.createElement('span');
+
+  source.className=
+    'activitySource';
+
+  source.textContent=
+    n.source||
+    'Slack';
+
+  source.style.color=
+    accent;
+
+
+  const time=
+    document.createElement('span');
+
+  time.className=
+    'activityTime';
+
+  time.style.color=
+    accent;
+
+
+  try{
+
+    time.textContent=
+      new Date(
+        n.time
+      ).toLocaleTimeString(
+        [],
+        {
+          hour:'numeric',
+          minute:'2-digit'
+        }
+      );
+
+  }catch{
+
+    time.textContent=
+      '';
+  }
+
+
+  top.appendChild(
+    source
+  );
+
+  top.appendChild(
+    time
+  );
+
+  card.appendChild(
+    top
+  );
+
+
+  if(n.sound){
+
+    const meta=
+      document.createElement('div');
+
+    meta.className=
+      'activityMeta';
+
+    meta.textContent=
+      'Sound: '+
+      n.sound;
+
+    card.appendChild(
+      meta
+    );
+  }
+
+
+  return card;
+}
+
+
+function renderActivity(items,generation=-1){
 
   const box=
     $('activityFeed');
@@ -3335,12 +3467,55 @@ function renderActivity(items){
     return;
   }
 
-  box.innerHTML='';
+
+  const numericGeneration=
+    Number(generation);
+
+
+  if(
+    Number.isFinite(numericGeneration) &&
+    numericGeneration>=0
+  ){
+
+    if(
+      shinyActivityInitialized &&
+      numericGeneration<
+        shinyActivityGeneration
+    ){
+      return;
+    }
+
+
+    if(
+      shinyActivityInitialized &&
+      numericGeneration===
+        shinyActivityGeneration
+    ){
+      return;
+    }
+
+
+    shinyActivityGeneration=
+      numericGeneration;
+  }
+
 
   const ordered=
     [...(items||[])];
 
+  const wasNearTop=
+    box.scrollTop<=24;
+
+
   if(!ordered.length){
+
+    for(
+      const child of
+      [...box.children]
+    ){
+      child.remove();
+    }
+
 
     const empty=
       document.createElement('div');
@@ -3355,130 +3530,205 @@ function renderActivity(items){
       empty
     );
 
+    shinyActivityInitialized=
+      true;
+
     return;
   }
 
 
-  ordered.forEach(n=>{
-
-    const card=
-      document.createElement('div');
-
-    card.className=
-      'activityItem';
-
-
-    const accent=
-      (
-        typeof n.accent==='string' &&
-        /^#[0-9a-f]{6}$/i.test(n.accent)
-      )
-        ? n.accent
-        : '#55d8ff';
-
-
-    card.style.setProperty(
-      '--activityAccent',
-      accent
+  const empty=
+    box.querySelector(
+      '.activityEmpty'
     );
 
-
-    const top=
-      document.createElement('div');
-
-    top.className=
-      'activityTop';
+  if(empty){
+    empty.remove();
+  }
 
 
-    const source=
-      document.createElement('span');
-
-    source.className=
-      'activitySource';
-
-    source.textContent=
-      n.source||
-      'Slack';
-
-    source.style.color=
-      accent;
+  const existing=
+    new Map();
 
 
-    const time=
-      document.createElement('span');
+  for(
+    const card of
+    box.querySelectorAll(
+      '.activityItem[data-event-key]'
+    )
+  ){
 
-    time.className=
-      'activityTime';
-
-    time.style.color=
-      accent;
-
-
-    try{
-
-      time.textContent=
-        new Date(
-          n.time
-        ).toLocaleTimeString(
-          [],
-          {
-            hour:'numeric',
-            minute:'2-digit'
-          }
-        );
-
-    }catch{
-
-      time.textContent=
-        '';
-    }
-
-
-    top.appendChild(
-      source
-    );
-
-    top.appendChild(
-      time
-    );
-
-    card.appendChild(
-      top
-    );
-
-
-    if(n.sound){
-
-      const meta=
-        document.createElement('div');
-
-      meta.className=
-        'activityMeta';
-
-      meta.textContent=
-        'Sound: '+
-        n.sound;
-
-      card.appendChild(
-        meta
-      );
-    }
-
-
-    box.appendChild(
+    existing.set(
+      card.dataset.eventKey,
       card
     );
-  });
+  }
 
 
-  // Backend is newest-first.
-  // Keep the latest event pinned at the top.
-  requestAnimationFrame(
-    ()=>{
-      box.scrollTop=0;
+  const wanted=
+    new Set(
+      ordered.map(
+        activityEventKey
+      )
+    );
+
+
+  for(
+    const [key,card] of
+    existing
+  ){
+
+    if(!wanted.has(key)){
+      card.remove();
+      existing.delete(key);
+    }
+  }
+
+
+  let added=
+    false;
+
+
+  ordered.forEach(
+    (n,index)=>{
+
+      const key=
+        activityEventKey(n);
+
+      let card=
+        existing.get(key);
+
+
+      if(!card){
+
+        card=
+          createActivityCard(
+            n,
+            key
+          );
+
+        existing.set(
+          key,
+          card
+        );
+
+        added=
+          true;
+      }
+
+
+      const current=
+        box.children[index]||
+        null;
+
+
+      if(current!==card){
+
+        box.insertBefore(
+          card,
+          current
+        );
+      }
     }
   );
+
+
+  shinyActivityInitialized=
+    true;
+
+
+  if(
+    added &&
+    wasNearTop
+  ){
+
+    requestAnimationFrame(
+      ()=>{
+        box.scrollTop=0;
+      }
+    );
+  }
 }
+
+
+async function refreshActivityFast(){
+
+  if(
+    shinyActivityInFlight ||
+    document.hidden
+  ){
+    return;
+  }
+
+
+  shinyActivityInFlight=
+    true;
+
+
+  try{
+
+    const headers=
+      {};
+
+
+    if(shinyActivityCursor){
+
+      headers[
+        'X-ShinySlack-Activity-Cursor'
+      ]=
+        shinyActivityCursor;
+    }
+
+
+    const result=
+      await api(
+        '/api/activity',
+        {
+          headers
+        }
+      );
+
+
+    if(result.cursor){
+
+      shinyActivityCursor=
+        String(result.cursor);
+    }
+
+
+    if(result.changed){
+
+      renderActivity(
+        result.notifications||[],
+        Number(result.generation)
+      );
+    }
+  }
+  catch(e){
+
+    // Activity transport is additive UX.
+    // Never surface transient fast-poll failures as dashboard errors.
+    console.debug(
+      'ShinySlack Activity refresh skipped:',
+      e?.message||e
+    );
+  }
+  finally{
+
+    shinyActivityInFlight=
+      false;
+  }
+}
+
+
+document.addEventListener(
+  'visibilitychange',
+  ()=>{
+    if(!document.hidden){
+      refreshActivityFast();
+    }
+  }
+);
 
 function renderSoundOwnership(o){
   o=o||{};
@@ -3593,7 +3843,15 @@ async function status(){
     $('health').textContent=s.installed?soundText:'Not installed';
     cls($('health'),(s.health==='Custom'||s.health==='ConfiguredDeferred')?'good':((s.health==='Stock'||s.health==='Deferred')?'warn':'bad'));
     $('watcher').textContent=s.installed?(s.watcherRunning?'Watching':'Not watching'):'Not installed'; cls($('watcher'),s.watcherRunning?'good':'warn'); $('watcher').title=s.watcherDetail||'';
-    renderActivity(s.notifications||[]);
+    if(s.activityCursor){
+      shinyActivityCursor=
+        String(s.activityCursor);
+    }
+
+    renderActivity(
+      s.notifications||[],
+      Number(s.activityGeneration)
+    );
     renderHistoryBackfill(s.historyBackfill||{});
     renderSoundOwnership(s.soundOwnership||{});
 
@@ -3782,6 +4040,19 @@ loadSoundPresetLibrary()
 
 status();
 setInterval(status,10000);
+
+/*
+ * Fast Activity path:
+ * - cached backend snapshot
+ * - cursor short-circuit
+ * - keyed DOM reconciliation
+ * - no full dashboard repoll/rerender
+ */
+refreshActivityFast();
+setInterval(
+  refreshActivityFast,
+  500
+);
 </script>
 <script id="shinyslack-activity-cards-js">
 (() => {

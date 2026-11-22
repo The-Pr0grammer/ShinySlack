@@ -639,7 +639,17 @@ function Protect-ShinySecret {
 }
 
 
-# SHINY-LIVE-ACTIVITY-FROM-ROUTER-V1
+# SHINY-LIVE-ACTIVITY-FROM-ROUTER-V2
+$script:LiveActivityCacheKey =
+    ''
+
+$script:LiveActivityCache =
+    @()
+
+$script:LiveActivityGeneration =
+    [int64]0
+
+
 function Get-LiveRouterActivityItems {
     param(
         [int]$Limit = 30
@@ -662,71 +672,95 @@ function Get-LiveRouterActivityItems {
     }
 
 
-    $palette =
-        @(
-            '#55d8ff',
-            '#ff5cc8',
-            '#63e6a3',
-            '#ffc857',
-            '#a78bfa',
-            '#5ea1ff',
-            '#ff7b72',
-            '#b5e853',
-            '#ff8fab',
-            '#44d7c4'
-        )
+    try {
+
+        $logInfo =
+            Get-Item `
+                -LiteralPath $routerLog `
+                -ErrorAction Stop
 
 
-    function Get-LiveActivityAccentIndex {
-        param(
-            [string]$Key,
-            [int]$PreviousIndex = -1
-        )
-
-
-        [uint64]$hash =
-            0
-
-
-        foreach(
-            $ch in
-            $Key.ToCharArray()
-        ){
-
-            $hash =
-                (
-                    ($hash * 31) +
-                    [int][char]$ch
-                ) % 4294967296
-        }
-
-
-        $index =
-            [int](
-                $hash %
-                $palette.Count
-            )
+        $cacheKey =
+            '{0}:{1}' -f
+            [int64]$logInfo.Length,
+            [int64]$logInfo.LastWriteTimeUtc.Ticks
 
 
         if(
-            $palette.Count -gt 1 -and
-            $index -eq $PreviousIndex
+            $cacheKey -eq
+            $script:LiveActivityCacheKey
         ){
 
-            $index =
-                (
-                    $index +
-                    1
-                ) %
-                $palette.Count
+            return @(
+                $script:LiveActivityCache |
+                Select-Object -First $Limit
+            )
         }
 
 
-        return [int]$index
-    }
+        $palette =
+            @(
+                '#55d8ff',
+                '#ff5cc8',
+                '#63e6a3',
+                '#ffc857',
+                '#a78bfa',
+                '#5ea1ff',
+                '#ff7b72',
+                '#b5e853',
+                '#ff8fab',
+                '#44d7c4'
+            )
 
 
-    try {
+        function Get-LiveActivityAccentIndex {
+            param(
+                [string]$Key,
+                [int]$PreviousIndex = -1
+            )
+
+
+            [uint64]$hash =
+                0
+
+
+            foreach(
+                $ch in
+                $Key.ToCharArray()
+            ){
+
+                $hash =
+                    (
+                        ($hash * 31) +
+                        [int][char]$ch
+                    ) % 4294967296
+            }
+
+
+            $index =
+                [int](
+                    $hash %
+                    $palette.Count
+                )
+
+
+            if(
+                $palette.Count -gt 1 -and
+                $index -eq $PreviousIndex
+            ){
+
+                $index =
+                    (
+                        $index +
+                        1
+                    ) %
+                    $palette.Count
+            }
+
+
+            return [int]$index
+        }
+
 
         $activity =
             @()
@@ -887,16 +921,85 @@ function Get-LiveRouterActivityItems {
         }
 
 
+        $ordered =
+            @(
+                $activity |
+                Sort-Object time -Descending |
+                Select-Object -First 60
+            )
+
+
+        $script:LiveActivityCache =
+            $ordered
+
+        $script:LiveActivityCacheKey =
+            $cacheKey
+
+        $script:LiveActivityGeneration++
+
+
         return @(
-            $activity |
-            Sort-Object time -Descending |
+            $ordered |
             Select-Object -First $Limit
         )
     }
     catch {
 
-        return @()
+        return @(
+            $script:LiveActivityCache |
+            Select-Object -First $Limit
+        )
     }
+}
+
+
+function Convert-LiveActivitySafe {
+    param(
+        [object[]]$Items
+    )
+
+
+    $safe =
+        @()
+
+
+    foreach(
+        $n in
+        @($Items)
+    ){
+
+        if($null -eq $n){
+            continue
+        }
+
+
+        $safe +=
+            [ordered]@{
+                time =
+                    [string]$n.time
+
+                source =
+                    [string]$n.source
+
+                message =
+                    [string]$n.message
+
+                sound =
+                    [string]$n.sound
+
+                backend =
+                    [string]$n.backend
+
+                eventKey =
+                    [string]$n.eventKey
+
+                accent =
+                    [string]$n.accent
+            }
+    }
+
+
+    return @($safe)
 }
 
 function Get-NotificationLedgerItems {
@@ -2200,15 +2303,14 @@ $listener=$null}}
         $client=$null
         $rid=([guid]::NewGuid().ToString('N').Substring(0,8)).ToUpperInvariant()
         try {
-            Write-WebDiag 'Waiting for TCP client...' $rid
             $client=$listener.AcceptTcpClient()
-            $remote='unknown'
-            try{$remote=$client.Client.RemoteEndPoint.ToString()}catch{}
-            Write-WebDiag "Accepted client $remote" $rid
+
             $client.ReceiveTimeout = 3000
             $client.SendTimeout = 5000
             $req=Read-Request $client $rid
-            Write-WebDiag "Dispatching $($req.Method) $($req.Path)" $rid
+            if($req.Path -ne '/api/activity'){
+                Write-WebDiag "Dispatching $($req.Method) $($req.Path)" $rid
+            }
 
             if($req.Path -ne '/' -and $req.Path -ne '/index.html'){
                 if(!$req.Headers.ContainsKey('x-shinyslack-token') -or $req.Headers['x-shinyslack-token'] -ne $script:Token){
@@ -2225,6 +2327,90 @@ $listener=$null}}
                 Write-WebDiag 'index.html sent.' $rid
                 continue
             }
+            # SHINY-LIVE-ACTIVITY-ENDPOINT-V1
+            if(
+                $req.Method -eq 'GET' -and
+                $req.Path -eq '/api/activity'
+            ){
+
+                $items =
+                    @(
+                        Get-LiveRouterActivityItems `
+                            -Limit 30
+                    )
+
+
+                $cursor =
+                    [string]$script:LiveActivityCacheKey
+
+
+                $clientCursor =
+                    ''
+
+
+                if(
+                    $req.Headers.ContainsKey(
+                        'x-shinyslack-activity-cursor'
+                    )
+                ){
+
+                    $clientCursor =
+                        [string]$req.Headers[
+                            'x-shinyslack-activity-cursor'
+                        ]
+                }
+
+
+                if(
+                    $clientCursor -and
+                    $clientCursor -eq $cursor
+                ){
+
+                    Json-Response `
+                        $client `
+                        ([ordered]@{
+                            ok =
+                                $true
+
+                            changed =
+                                $false
+
+                            cursor =
+                                $cursor
+
+                            generation =
+                                [int64]$script:LiveActivityGeneration
+                        })
+
+                    continue
+                }
+
+
+                Json-Response `
+                    $client `
+                    ([ordered]@{
+                        ok =
+                            $true
+
+                        changed =
+                            $true
+
+                        cursor =
+                            $cursor
+
+                        generation =
+                            [int64]$script:LiveActivityGeneration
+
+                        notifications =
+                            @(
+                                Convert-LiveActivitySafe `
+                                    -Items $items
+                            )
+                    })
+
+                continue
+            }
+
             if($req.Method -eq 'GET' -and $req.Path -eq '/api/status'){
 
                 Write-WebDiag 'Building status object.' $rid
@@ -2241,25 +2427,11 @@ $listener=$null}}
                 # Notifications
                 # ------------------------------
 
-                $safeNotifications = @()
-
-                foreach($n in @($obj.notifications)) {
-
-                    if($null -eq $n) {
-                        continue
-                    }
-
-                    $safeNotifications +=
-                        [ordered]@{
-                            time     = [string]$n.time
-                            source   = [string]$n.source
-                            message  = [string]$n.message
-                            sound    = [string]$n.sound
-                            backend  = [string]$n.backend
-                            eventKey = [string]$n.eventKey
-                            accent   = [string]$n.accent
-                        }
-                }
+                $safeNotifications =
+                    @(
+                        Convert-LiveActivitySafe `
+                            -Items @($obj.notifications)
+                    )
 
 
                 # ------------------------------
@@ -2329,6 +2501,8 @@ $listener=$null}}
                         ffmpeg         = [bool]$obj.ffmpeg
                         log            = [string]$obj.log
                         notifications  = @($safeNotifications)
+                        activityCursor = [string]$script:LiveActivityCacheKey
+                        activityGeneration = [int64]$script:LiveActivityGeneration
                         agentBuild     = [string]$obj.agentBuild
 
                         channelAudio =

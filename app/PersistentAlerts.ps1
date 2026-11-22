@@ -270,7 +270,7 @@ $form.BackColor = [Drawing.Color]::FromArgb(20,22,27)
 $form.ForeColor = [Drawing.Color]::White
 $form.Width = 390
 $form.Height = 100
-$form.Opacity = .985
+$form.Opacity = 1.0
 $form.AutoScroll = $false
 # SHINY-DECK-GLOBAL-WHEEL-V1
 $form.Add_MouseWheel({
@@ -1903,18 +1903,18 @@ function Render-Expanded {
                     [Drawing.Drawing2D.SmoothingMode]::AntiAlias
 
                 $g.TextRenderingHint =
-                    [Drawing.Text.TextRenderingHint]::AntiAlias
+                    [Drawing.Text.TextRenderingHint]::ClearTypeGridFit
 
 
                 $fontSize =
                     if($channelText.Length -gt 23){
-                        10.5
+                        11.5
                     }
                     elseif($channelText.Length -gt 18){
-                        11
+                        12
                     }
                     else {
-                        12
+                        13
                     }
 
 
@@ -2002,7 +2002,7 @@ function Render-Expanded {
             $time.Font =
                 New-Object Drawing.Font(
                     'Segoe UI',
-                    8,
+                    9,
                     [Drawing.FontStyle]::Bold
                 )
 
