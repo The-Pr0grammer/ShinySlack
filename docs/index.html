@@ -138,6 +138,13 @@ section{padding:40px 0}
   margin-top:24px;padding:20px;border:1px solid #28543d;border-radius:16px;
   background:#0d1a16;color:#c3ead3;
 }
+/* SHINY-275-IN-PAGE-FAQ-V1 */
+.faqList{display:grid;gap:10px;margin-top:23px}
+.faqList details{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:0 18px}
+.faqList summary{cursor:pointer;list-style-position:inside;font-weight:750;padding:17px 0;outline-offset:4px}
+.faqList details[open] summary{color:var(--cyan)}
+.faqList details p{margin:0 0 18px;color:var(--muted);padding:0 0 0 17px;max-width:850px}
+.faqList a,.sub a{color:var(--cyan)}
 .footer{
   border-top:1px solid #1e293c;margin-top:50px;padding:32px 0 55px;
   color:#7e8da2;font-size:13px;display:flex;justify-content:space-between;
@@ -194,13 +201,13 @@ section{padding:40px 0}
   </div>
 
   <section>
-    <h2 class="sectionTitle">Download -> install -> run.</h2>
-    <p class="sub">The supported end-user flow is intentionally boring. You should never need to hunt through scripts after setup.</p>
+    <h2 class="sectionTitle">Download &rarr; install &rarr; open.</h2>
+    <p class="sub">One installer. One shortcut. No cache priming or manual PowerShell setup required for the supported live notification path.</p>
 
     <div class="steps">
       <div class="card"><span class="num">01</span><h3>Download</h3><p>Grab <b>ShinySlackSetup.exe</b> from the newest published GitHub Release.</p></div>
       <div class="card"><span class="num">02</span><h3>Install</h3><p>Run setup and leave <b>Open ShinySlack now</b> checked when the installer finishes.</p></div>
-      <div class="card"><span class="num">03</span><h3>Open ShinySlack</h3><p>Your local dashboard opens in the browser and the floating alert deck starts automatically.</p></div>
+      <div class="card"><span class="num">03</span><h3>Open ShinySlack</h3><p>The local dashboard opens in your browser, and the floating alert deck starts. In Slack Desktop, keep Slack&#39;s built-in notifications enabled, then test with a real incoming message.</p></div>
     </div>
 
     <div class="callout"><strong>How do I open it later?</strong><br>Double-click <b>ShinySlack</b> on your Desktop or in the Start menu. That one shortcut starts the pieces ShinySlack needs and opens the dashboard.</div>
@@ -217,7 +224,7 @@ section{padding:40px 0}
       <div class="feature"><b>Deep links + live Activity</b><p>Linked alerts can open the exact Slack channel, while Activity mirrors live notification events with low latency.</p></div>
     </div>
 
-    <div class="limit"><b>Notification-source limitation:</b> ShinySlack currently reads Slack Desktop's built-in notification windows using Windows UI Automation. It works across monitors and positions, but it does not read notifications that exist only in Windows Action Center.</div>
+    <div class="limit" role="note"><b>Important compatibility note:</b> ShinySlack works with <b>Slack Desktop&#39;s built-in notification windows</b> on Windows, including across monitors. <b>Windows Notification Center / Action Center notifications are not supported.</b> Keep Slack&#39;s built-in notifications enabled and test using an actual incoming Slack notification.</div>
   </section>
 
   <section>
@@ -225,6 +232,23 @@ section{padding:40px 0}
     <p class="sub">The current live path was hardened before notification-history development moved forward.</p>
     <div class="privacy">Loopback-only dashboard. Cryptographic local API token. No persisted live message bodies. Local Slack channel/team identifiers excluded from Git. Current live routing requires no Slack credentials.</div>
     <p class="sub" style="margin-top:14px">Offline notification-history recovery while the PC is asleep/off is still under development and is not advertised here as a finished feature.</p>
+  </section>
+
+  <!-- SHINY-275-IN-PAGE-FAQ-V1 -->
+  <section id="faq" aria-labelledby="faq-title">
+    <h2 class="sectionTitle" id="faq-title">Frequently asked questions.</h2>
+    <p class="sub">Everything you need to know before installing. <a href="https://github.com/The-Pr0grammer/ShinySlack/blob/main/docs/FAQ.md">Read the full privacy and technical FAQ</a> for more detail.</p>
+    <div class="faqList">
+      <details><summary>Which Slack notifications does ShinySlack support?</summary><p>Slack Desktop's own built-in notification windows on Windows, wherever they appear on your connected monitors. Alerts delivered only through Windows Notification Center / Action Center are not supported. Test with a real incoming notification.</p></details>
+      <details><summary>Do I need to prime Slack or modify its sound cache?</summary><p>No. The current live notification Router watches Slack's built-in notification windows; the earlier cache-priming setup is not part of the normal installation flow.</p></details>
+      <details><summary>How do I launch ShinySlack after installation?</summary><p>Use the branded ShinySlack Desktop or Start-menu shortcut. It opens the local dashboard and brings up the floating alert deck; you do not need to run scripts manually.</p></details>
+      <details><summary>Does ShinySlack save my message text or sender names?</summary><p>No. In v2.7.5, accessible notification text is processed transiently for a short-lived SHA-256 deduplication fingerprint. Message bodies and sender names are not intentionally persisted. Local routing and event metadata are stored to provide the app's features.</p></details>
+      <details><summary>Does ShinySlack upload my Slack data?</summary><p>There is no ShinySlack telemetry service and the dashboard is bound to local loopback. An update check can contact GitHub for release metadata, without uploading Slack message content or channel configuration.</p></details>
+      <details><summary>Can an alert take me directly to a Slack channel?</summary><p>Yes, when that channel has a configured Slack deep link. ShinySlack opens the linked conversation using Slack's native URI handling.</p></details>
+      <details><summary>Will alerts disappear automatically?</summary><p>The floating deck supports individual dismissal, dismiss-all, tuck/expand, and a configurable auto-dismiss option. Activity separately displays recent live routing events.</p></details>
+      <details><summary>Can ShinySlack recover notifications from while my PC was off?</summary><p>Not in v2.7.5. Offline recovery is reserved for v2.8 and will require its own privacy, consent, and retention design. Recovered channel activity would not necessarily be identical to notifications Slack would have shown.</p></details>
+      <details><summary>Is ShinySlack affiliated with Slack?</summary><p>No. ShinySlack is an unofficial companion app. Use it only when permitted by your device and workplace policies.</p></details>
+    </div>
   </section>
 
   <section>
