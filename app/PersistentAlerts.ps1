@@ -54,6 +54,108 @@ $script:Palette = @(
     '#44d7c4'
 )
 
+# SHINY-ALERT-VISUAL-TOKENS-V1
+$script:AlertVisual =
+    [pscustomobject]@{
+        PageBackground =
+            [Drawing.Color]::FromArgb(
+                9,
+                11,
+                17
+            )
+
+        CardBackground =
+            [Drawing.Color]::FromArgb(
+                8,
+                11,
+                17
+            )
+
+        HoverBackground =
+            [Drawing.Color]::FromArgb(
+                10,
+                16,
+                24
+            )
+
+        Border =
+            [Drawing.Color]::FromArgb(
+                37,
+                44,
+                58
+            )
+
+        HeaderSurface =
+            [Drawing.Color]::FromArgb(
+                14,
+                18,
+                27
+            )
+
+        ControlSurface =
+            [Drawing.Color]::FromArgb(
+                11,
+                15,
+                23
+            )
+
+        Text =
+            [Drawing.Color]::FromArgb(
+                245,
+                247,
+                251
+            )
+
+        SecondaryText =
+            [Drawing.Color]::FromArgb(
+                214,
+                222,
+                234
+            )
+
+        Muted =
+            [Drawing.Color]::FromArgb(
+                154,
+                166,
+                183
+            )
+
+        Meta =
+            [Drawing.Color]::FromArgb(
+                104,
+                116,
+                137
+            )
+
+        DefaultAccent =
+            [Drawing.Color]::FromArgb(
+                85,
+                216,
+                255
+            )
+
+        ScrollThumb =
+            [Drawing.Color]::FromArgb(
+                70,
+                82,
+                101
+            )
+
+        CardHeight =
+            64
+
+        CardRadius =
+            14
+
+        CardGap =
+            9
+
+        RailWidth =
+            4
+    }
+
+
+
 if(Test-Path $log) {
     try {
         $script:Offset = (Get-Item $log).Length
@@ -248,16 +350,43 @@ function New-Button {
         [int]$Width = 28
     )
 
-    $b = New-Object System.Windows.Forms.Button
-    $b.Text = $Text
-    $b.Width = $Width
-    $b.Height = 25
-    $b.FlatStyle = 'Flat'
-    $b.FlatAppearance.BorderSize = 0
-    $b.BackColor = [Drawing.Color]::FromArgb(36,39,47)
-    $b.ForeColor = [Drawing.Color]::Gainsboro
-    $b.Font = New-Object Drawing.Font('Segoe UI',10,[Drawing.FontStyle]::Bold)
-    $b.Cursor = [System.Windows.Forms.Cursors]::Hand
+    $b =
+        New-Object System.Windows.Forms.Button
+
+    $b.Text =
+        $Text
+
+    $b.Width =
+        $Width
+
+    $b.Height =
+        26
+
+    $b.FlatStyle =
+        'Flat'
+
+    $b.FlatAppearance.BorderSize =
+        1
+
+    $b.FlatAppearance.BorderColor =
+        $script:AlertVisual.Border
+
+    $b.BackColor =
+        $script:AlertVisual.ControlSurface
+
+    $b.ForeColor =
+        $script:AlertVisual.SecondaryText
+
+    $b.Font =
+        New-Object Drawing.Font(
+            'Segoe UI',
+            8.25,
+            [Drawing.FontStyle]::Bold
+        )
+
+    $b.Cursor =
+        [System.Windows.Forms.Cursors]::Hand
+
     $b
 }
 
@@ -266,8 +395,8 @@ $form.FormBorderStyle = 'None'
 $form.ShowInTaskbar = $false
 $form.TopMost = $true
 $form.StartPosition = 'Manual'
-$form.BackColor = [Drawing.Color]::FromArgb(20,22,27)
-$form.ForeColor = [Drawing.Color]::White
+$form.BackColor = $script:AlertVisual.PageBackground
+$form.ForeColor = $script:AlertVisual.Text
 $form.Width = 390
 $form.Height = 100
 $form.Opacity = 1.0
@@ -621,9 +750,12 @@ function Render-Tucked {
         $form.Controls.Clear()
         $form.AutoScroll = $false
 
-        # SHINY-DECK-HEADER-LAYOUT-V2
-        $form.Width = 350
-        $form.Height = 38
+        # SHINY-DECK-CANONICAL-HEADER-V1
+        $form.Width =
+            360
+
+        $form.Height =
+            40
 
 
         $bar =
@@ -633,44 +765,67 @@ function Render-Tucked {
             'Fill'
 
         $bar.BackColor =
-            [Drawing.Color]::FromArgb(
-                12,
-                17,
-                24
-            )
+            $script:AlertVisual.HeaderSurface
 
 
-        $accent =
+        $brandRail =
             New-Object System.Windows.Forms.Panel
 
-        $accent.Left = 0
-        $accent.Top = 0
-        $accent.Width = 3
-        $accent.Height = 38
+        $brandRail.Left =
+            0
 
-        $accent.BackColor =
-            [Drawing.Color]::FromArgb(
-                85,
-                216,
-                255
-            )
+        $brandRail.Top =
+            0
+
+        $brandRail.Width =
+            3
+
+        $brandRail.Height =
+            40
+
+        $brandRail.BackColor =
+            $script:AlertVisual.DefaultAccent
+
+
+        $bottomLine =
+            New-Object System.Windows.Forms.Panel
+
+        $bottomLine.Left =
+            0
+
+        $bottomLine.Top =
+            39
+
+        $bottomLine.Width =
+            360
+
+        $bottomLine.Height =
+            1
+
+        $bottomLine.BackColor =
+            $script:AlertVisual.Border
 
 
         $grip =
             New-Object System.Windows.Forms.Label
 
-        $grip.Left = 10
-        $grip.Top = 10
-        $grip.Width = 18
-        $grip.Height = 16
-        $grip.Text = '::'
+        $grip.Left =
+            10
+
+        $grip.Top =
+            11
+
+        $grip.Width =
+            18
+
+        $grip.Height =
+            17
+
+        $grip.Text =
+            '::'
 
         $grip.ForeColor =
-            [Drawing.Color]::FromArgb(
-                85,
-                102,
-                123
-            )
+            $script:AlertVisual.Meta
 
         $grip.Font =
             New-Object Drawing.Font(
@@ -683,18 +838,23 @@ function Render-Tucked {
         $title =
             New-Object System.Windows.Forms.Label
 
-        $title.Left = 31
-        $title.Top = 9
-        $title.Width = 78
-        $title.Height = 18
-        $title.Text = 'ShinySlack'
+        $title.Left =
+            31
+
+        $title.Top =
+            10
+
+        $title.Width =
+            78
+
+        $title.Height =
+            19
+
+        $title.Text =
+            'ShinySlack'
 
         $title.ForeColor =
-            [Drawing.Color]::FromArgb(
-                233,
-                240,
-                248
-            )
+            $script:AlertVisual.Text
 
         $title.Font =
             New-Object Drawing.Font(
@@ -716,56 +876,49 @@ function Render-Tucked {
         $count =
             New-Object System.Windows.Forms.Label
 
-        $count.Left = 112
-        $count.Top = 8
-        $count.Width = 72
-        $count.Height = 20
-        $count.Text = $countText
-        $count.TextAlign = 'MiddleCenter'
+        $count.Left =
+            112
+
+        $count.Top =
+            9
+
+        $count.Width =
+            76
+
+        $count.Height =
+            22
+
+        $count.Text =
+            $countText
+
+        $count.TextAlign =
+            'MiddleCenter'
 
         $count.ForeColor =
-            [Drawing.Color]::FromArgb(
-                126,
-                140,
-                158
-            )
+            $script:AlertVisual.Muted
 
         $count.Font =
             New-Object Drawing.Font(
-                'Segoe UI',
-                8
+                'Consolas',
+                8.25
             )
 
 
         $dashboard =
-            New-Button 'Dashboard' 112
+            New-Button 'Dashboard' 118
 
-        $dashboard.Left = 192
-        $dashboard.Top = 6
-        $dashboard.Height = 26
+        $dashboard.Left =
+            198
 
-        $dashboard.BackColor =
-            [Drawing.Color]::FromArgb(
-                20,
-                27,
-                38
-            )
+        $dashboard.Top =
+            6
 
-        $dashboard.ForeColor =
-            [Drawing.Color]::FromArgb(
-                214,
-                224,
-                236
-            )
+        $dashboard.Height =
+            28
 
-        $dashboard.Font =
-            New-Object Drawing.Font(
-                'Segoe UI',
-                8,
-                [Drawing.FontStyle]::Bold
-            )
-
-        Set-RoundedRegion $dashboard 8
+        Set-RoundedRegion `
+            $dashboard `
+            8
 
         $dashboard.Add_Click({
             Open-ShinySlackDashboard
@@ -775,26 +928,21 @@ function Render-Tucked {
         $plus =
             New-Button '+' 28
 
-        $plus.Left = 316
-        $plus.Top = 6
-        $plus.Height = 26
+        $plus.Left =
+            326
 
-        $plus.BackColor =
-            [Drawing.Color]::FromArgb(
-                23,
-                31,
-                42
-            )
+        $plus.Top =
+            6
+
+        $plus.Height =
+            28
 
         $plus.ForeColor =
-            [Drawing.Color]::FromArgb(
-                101,
-                222,
-                255
-            )
+            $script:AlertVisual.DefaultAccent
 
-
-        Set-RoundedRegion $plus 8
+        Set-RoundedRegion `
+            $plus `
+            8
 
 
         $plus.Add_Click({
@@ -803,7 +951,10 @@ function Render-Tucked {
                 Get-Date
 
 
-            foreach($a in @($script:Alerts)){
+            foreach(
+                $a in
+                @($script:Alerts)
+            ){
 
                 if(!$a.ExpireAt){
                     continue
@@ -854,19 +1005,43 @@ function Render-Tucked {
                 $count
             )
         ){
+
             Enable-DeckDrag `
                 $dragSurface
         }
 
 
-        $bar.Controls.Add($accent)
-        $bar.Controls.Add($grip)
-        $bar.Controls.Add($title)
-        $bar.Controls.Add($count)
-        $bar.Controls.Add($dashboard)
-        $bar.Controls.Add($plus)
+        $bar.Controls.Add(
+            $brandRail
+        )
 
-        $form.Controls.Add($bar)
+        $bar.Controls.Add(
+            $bottomLine
+        )
+
+        $bar.Controls.Add(
+            $grip
+        )
+
+        $bar.Controls.Add(
+            $title
+        )
+
+        $bar.Controls.Add(
+            $count
+        )
+
+        $bar.Controls.Add(
+            $dashboard
+        )
+
+        $bar.Controls.Add(
+            $plus
+        )
+
+        $form.Controls.Add(
+            $bar
+        )
 
 
         Position-Form
@@ -1450,41 +1625,90 @@ function Render-Expanded {
 
         # =====================================================
         # HEADER
+        # Canonical ShinySlack deck chrome.
         # =====================================================
 
         $header =
             New-Object System.Windows.Forms.Panel
 
-        $header.Left = 0
-        $header.Top = 0
-        $header.Width = 404
-        $header.Height = 32
+        $header.Left =
+            0
+
+        $header.Top =
+            0
+
+        $header.Width =
+            404
+
+        $header.Height =
+            40
 
         $header.BackColor =
-            [Drawing.Color]::FromArgb(
-                14,
-                19,
-                27
-            )
+            $script:AlertVisual.HeaderSurface
 
-        Set-RoundedRegion $header 10
+        Set-RoundedRegion `
+            $header `
+            10
+
+
+        $brandRail =
+            New-Object System.Windows.Forms.Panel
+
+        $brandRail.Left =
+            0
+
+        $brandRail.Top =
+            0
+
+        $brandRail.Width =
+            3
+
+        $brandRail.Height =
+            40
+
+        $brandRail.BackColor =
+            $script:AlertVisual.DefaultAccent
+
+
+        $bottomLine =
+            New-Object System.Windows.Forms.Panel
+
+        $bottomLine.Left =
+            0
+
+        $bottomLine.Top =
+            39
+
+        $bottomLine.Width =
+            404
+
+        $bottomLine.Height =
+            1
+
+        $bottomLine.BackColor =
+            $script:AlertVisual.Border
 
 
         $dragGrip =
             New-Object System.Windows.Forms.Label
 
-        $dragGrip.Left = 10
-        $dragGrip.Top = 8
-        $dragGrip.Width = 18
-        $dragGrip.Height = 17
-        $dragGrip.Text = '::'
+        $dragGrip.Left =
+            10
+
+        $dragGrip.Top =
+            11
+
+        $dragGrip.Width =
+            18
+
+        $dragGrip.Height =
+            17
+
+        $dragGrip.Text =
+            '::'
 
         $dragGrip.ForeColor =
-            [Drawing.Color]::FromArgb(
-                79,
-                98,
-                122
-            )
+            $script:AlertVisual.Meta
 
         $dragGrip.Font =
             New-Object Drawing.Font(
@@ -1493,21 +1717,27 @@ function Render-Expanded {
                 [Drawing.FontStyle]::Bold
             )
 
+
         $title =
             New-Object System.Windows.Forms.Label
 
-        $title.Left = 32
-        $title.Top = 7
-        $title.Width = 80
-        $title.Height = 18
-        $title.Text = 'ShinySlack'
+        $title.Left =
+            32
+
+        $title.Top =
+            10
+
+        $title.Width =
+            78
+
+        $title.Height =
+            19
+
+        $title.Text =
+            'ShinySlack'
 
         $title.ForeColor =
-            [Drawing.Color]::FromArgb(
-                226,
-                232,
-                240
-            )
+            $script:AlertVisual.Text
 
         $title.Font =
             New-Object Drawing.Font(
@@ -1529,151 +1759,161 @@ function Render-Expanded {
         $count =
             New-Object System.Windows.Forms.Label
 
-        $count.Left = 118
-        $count.Top = 6
-        $count.Width = 78
-        $count.Height = 21
-        $count.Text = $countText
-        $count.TextAlign = 'MiddleCenter'
+        $count.Left =
+            118
+
+        $count.Top =
+            9
+
+        $count.Width =
+            76
+
+        $count.Height =
+            22
+
+        $count.Text =
+            $countText
+
+        $count.TextAlign =
+            'MiddleCenter'
 
         $count.ForeColor =
-            [Drawing.Color]::FromArgb(
-                126,
-                140,
-                158
-            )
+            $script:AlertVisual.Muted
 
         $count.Font =
             New-Object Drawing.Font(
-                'Segoe UI',
-                8
+                'Consolas',
+                8.25
             )
 
 
-        # SHINY-DECK-DASHBOARD-BUTTON-V1
         $dashboard =
-            New-Button 'Dashboard' 112
+            New-Button 'Dashboard' 118
 
-        $dashboard.Left = 214
-        $dashboard.Top = 4
-        $dashboard.Height = 24
+        $dashboard.Left =
+            202
 
-        $dashboard.BackColor =
-            [Drawing.Color]::FromArgb(
-                20,
-                27,
-                38
-            )
+        $dashboard.Top =
+            6
 
-        $dashboard.ForeColor =
-            [Drawing.Color]::FromArgb(
-                214,
-                224,
-                236
-            )
+        $dashboard.Height =
+            28
 
-        $dashboard.Font =
-            New-Object Drawing.Font(
-                'Segoe UI',
-                8,
-                [Drawing.FontStyle]::Bold
-            )
-
-        Set-RoundedRegion $dashboard 8
+        Set-RoundedRegion `
+            $dashboard `
+            8
 
         $dashboard.Add_Click({
             Open-ShinySlackDashboard
         })
 
-        # -----------------------------------------------------
-        # GLOBAL MINUS = TUCK ALL
-        # -----------------------------------------------------
 
         $minus =
             New-Button '-' 28
 
-        $minus.Left = 337
-        $minus.Top = 4
-        $minus.Height = 24
+        $minus.Left =
+            337
 
-        $minus.BackColor =
-            [Drawing.Color]::FromArgb(
-                24,
-                31,
-                42
-            )
+        $minus.Top =
+            6
 
-        $minus.ForeColor =
-            [Drawing.Color]::FromArgb(
-                184,
-                196,
-                211
-            )
+        $minus.Height =
+            28
 
-        Set-RoundedRegion $minus 8
+        Set-RoundedRegion `
+            $minus `
+            8
 
 
         $minus.Add_Click({
 
-            $script:Tucked = $true
-            $script:TuckStarted = Get-Date
+            $script:Tucked =
+                $true
+
+            $script:TuckStarted =
+                Get-Date
 
             Render-Tucked
         })
 
 
-        # -----------------------------------------------------
-        # GLOBAL X = DISMISS ALL
-        # -----------------------------------------------------
-
         $closeAll =
             New-Button 'X' 28
 
-        $closeAll.Left = 369
-        $closeAll.Top = 4
-        $closeAll.Height = 24
+        $closeAll.Left =
+            369
 
-        $closeAll.BackColor =
-            [Drawing.Color]::FromArgb(
-                24,
-                31,
-                42
-            )
+        $closeAll.Top =
+            6
 
-        $closeAll.ForeColor =
-            [Drawing.Color]::FromArgb(
-                184,
-                196,
-                211
-            )
+        $closeAll.Height =
+            28
 
-        Set-RoundedRegion $closeAll 8
+        Set-RoundedRegion `
+            $closeAll `
+            8
 
 
         $closeAll.Add_Click({
 
             try {
+
                 $script:Alerts.Clear()
             }
             catch {
-                while($script:Alerts.Count -gt 0){
+
+                while(
+                    $script:Alerts.Count -gt
+                    0
+                ){
+
                     $script:Alerts.RemoveAt(
-                        $script:Alerts.Count - 1
+                        $script:Alerts.Count -
+                        1
                     )
                 }
             }
 
-            $script:Tucked = $false
+
+            $script:Tucked =
+                $false
+
             $form.Hide()
         })
 
 
-        $header.Controls.Add($dragGrip)
-        $header.Controls.Add($title)
-        $header.Controls.Add($count)
-        $header.Controls.Add($dashboard)
-        $header.Controls.Add($minus)
-        $header.Controls.Add($closeAll)
+        $header.Controls.Add(
+            $brandRail
+        )
+
+        $header.Controls.Add(
+            $bottomLine
+        )
+
+        $header.Controls.Add(
+            $dragGrip
+        )
+
+        $header.Controls.Add(
+            $title
+        )
+
+        $header.Controls.Add(
+            $count
+        )
+
+        $header.Controls.Add(
+            $dashboard
+        )
+
+        $header.Controls.Add(
+            $minus
+        )
+
+        $header.Controls.Add(
+            $closeAll
+        )
+
 
         foreach(
             $dragSurface in
@@ -1684,11 +1924,15 @@ function Render-Expanded {
                 $count
             )
         ){
+
             Enable-DeckDrag `
                 $dragSurface
         }
 
-        $form.Controls.Add($header)
+
+        $form.Controls.Add(
+            $header
+        )
 
 
         # =====================================================
@@ -1699,16 +1943,12 @@ function Render-Expanded {
             New-Object System.Windows.Forms.Panel
 
         $viewport.Left = 0
-        $viewport.Top = 38
+        $viewport.Top = 46
         $viewport.Width = 394
         $viewport.Height = 100
 
         $viewport.BackColor =
-            [Drawing.Color]::FromArgb(
-                20,
-                22,
-                27
-            )
+            $script:AlertVisual.PageBackground
 
         $viewport.AutoScroll =
             $false
@@ -1723,27 +1963,19 @@ function Render-Expanded {
         $content.Height = 100
 
         $content.BackColor =
-            [Drawing.Color]::FromArgb(
-                20,
-                22,
-                27
-            )
+            $script:AlertVisual.PageBackground
 
 
         $scrollRail =
             New-Object System.Windows.Forms.Panel
 
         $scrollRail.Left = 397
-        $scrollRail.Top = 42
+        $scrollRail.Top = 50
         $scrollRail.Width = 5
         $scrollRail.Height = 90
 
         $scrollRail.BackColor =
-            [Drawing.Color]::FromArgb(
-                23,
-                31,
-                42
-            )
+            $script:AlertVisual.HeaderSurface
 
         $scrollRail.Cursor =
             [Windows.Forms.Cursors]::Hand
@@ -1758,11 +1990,7 @@ function Render-Expanded {
         $scrollThumb.Height = 36
 
         $scrollThumb.BackColor =
-            [Drawing.Color]::FromArgb(
-                74,
-                111,
-                131
-            )
+            $script:AlertVisual.ScrollThumb
 
         $scrollThumb.Cursor =
             [Windows.Forms.Cursors]::SizeNS
@@ -1817,14 +2045,10 @@ function Render-Expanded {
             $shell.Left = 0
             $shell.Top = $top
             $shell.Width = 390
-            $shell.Height = 66
+            $shell.Height = $script:AlertVisual.CardHeight
 
             $shell.BackColor =
-                [Drawing.Color]::FromArgb(
-                    37,
-                    44,
-                    58
-                )
+                $script:AlertVisual.Border
 
             $shell.Tag = $a.Channel
             $shell.Cursor =
@@ -1832,7 +2056,7 @@ function Render-Expanded {
 
             $shell.Add_Click($openSlack)
 
-            Set-RoundedRegion $shell 14
+            Set-RoundedRegion $shell $script:AlertVisual.CardRadius
 
 
             # -------------------------------------------------
@@ -1845,14 +2069,10 @@ function Render-Expanded {
             $card.Left = 1
             $card.Top = 1
             $card.Width = 388
-            $card.Height = 64
+            $card.Height = ($script:AlertVisual.CardHeight - 2)
 
             $card.BackColor =
-                [Drawing.Color]::FromArgb(
-                    8,
-                    11,
-                    17
-                )
+                $script:AlertVisual.CardBackground
 
             $card.Tag = $a.Channel
             $card.Cursor =
@@ -1860,7 +2080,7 @@ function Render-Expanded {
 
             $card.Add_Click($openSlack)
 
-            Set-RoundedRegion $card 13
+            Set-RoundedRegion $card ($script:AlertVisual.CardRadius - 1)
 
 
             # -------------------------------------------------
@@ -1872,8 +2092,8 @@ function Render-Expanded {
 
             $rail.Left = 0
             $rail.Top = 0
-            $rail.Width = 4
-            $rail.Height = 64
+            $rail.Width = $script:AlertVisual.RailWidth
+            $rail.Height = ($script:AlertVisual.CardHeight - 2)
 
             $rail.BackColor = $accent
             $rail.Tag = $a.Channel
@@ -1883,7 +2103,7 @@ function Render-Expanded {
 
             $rail.Add_Click($openSlack)
             # -------------------------------------------------
-            # CHANNEL - crisp Activity-style accent text
+            # CHANNEL - canonical Activity visual identity
             # -------------------------------------------------
 
             $channelText =
@@ -1894,7 +2114,10 @@ function Render-Expanded {
 
             $paintChannel = {
 
-                param($sender,$paintArgs)
+                param(
+                    $sender,
+                    $paintArgs
+                )
 
                 $g =
                     $paintArgs.Graphics
@@ -1906,15 +2129,16 @@ function Render-Expanded {
                     [Drawing.Text.TextRenderingHint]::ClearTypeGridFit
 
 
+                # Activity uses 15px/800. At 96 DPI that is 11.25pt.
                 $fontSize =
-                    if($channelText.Length -gt 23){
-                        11.5
+                    if($channelText.Length -gt 28){
+                        9.75
                     }
-                    elseif($channelText.Length -gt 18){
-                        12
+                    elseif($channelText.Length -gt 22){
+                        10.5
                     }
                     else {
-                        13
+                        11.25
                     }
 
 
@@ -1944,10 +2168,10 @@ function Render-Expanded {
 
                 $rect =
                     New-Object Drawing.RectangleF(
-                        15,
+                        14,
                         0,
                         240,
-                        64
+                        ($script:AlertVisual.CardHeight - 2)
                     )
 
 
@@ -1957,9 +2181,47 @@ function Render-Expanded {
                     )
 
 
+                # Mirrors Activity's subtle inset accent presence.
+                $washRect =
+                    New-Object Drawing.Rectangle(
+                        4,
+                        0,
+                        28,
+                        ($script:AlertVisual.CardHeight - 2)
+                    )
+
+
+                $wash =
+                    New-Object Drawing.Drawing2D.LinearGradientBrush(
+                        $washRect,
+                        (
+                            [Drawing.Color]::FromArgb(
+                                28,
+                                $channelAccent.R,
+                                $channelAccent.G,
+                                $channelAccent.B
+                            )
+                        ),
+                        (
+                            [Drawing.Color]::FromArgb(
+                                0,
+                                $channelAccent.R,
+                                $channelAccent.G,
+                                $channelAccent.B
+                            )
+                        ),
+                        [Drawing.Drawing2D.LinearGradientMode]::Horizontal
+                    )
+
+
                 try {
 
-                    # Match Activity: crisp accent text, no neon halo.
+                    $g.FillRectangle(
+                        $wash,
+                        $washRect
+                    )
+
+
                     $g.DrawString(
                         $channelText,
                         $font,
@@ -1973,6 +2235,7 @@ function Render-Expanded {
                     $font.Dispose()
                     $format.Dispose()
                     $main.Dispose()
+                    $wash.Dispose()
                 }
 
             }.GetNewClosure()
@@ -1991,9 +2254,9 @@ function Render-Expanded {
                 New-Object System.Windows.Forms.Label
 
             $time.Left = 264
-            $time.Top = 22
+            $time.Top = 19
             $time.Width = 74
-            $time.Height = 20
+            $time.Height = 22
 
             $time.TextAlign = 'MiddleRight'
             $time.Text = $a.Time.ToString('h:mm tt')
@@ -2001,8 +2264,8 @@ function Render-Expanded {
 
             $time.Font =
                 New-Object Drawing.Font(
-                    'Segoe UI',
-                    9,
+                    'Consolas',
+                    8.25,
                     [Drawing.FontStyle]::Bold
                 )
 
@@ -2021,23 +2284,18 @@ function Render-Expanded {
                 New-Button 'X' 28
 
             $x.Left = 349
-            $x.Top = 20
+            $x.Top = 19
             $x.Height = 24
             $x.Tag = $a.Id
 
             $x.BackColor =
-                [Drawing.Color]::FromArgb(
-                    21,
-                    28,
-                    38
-                )
+                $script:AlertVisual.CardBackground
 
             $x.ForeColor =
-                [Drawing.Color]::FromArgb(
-                    184,
-                    196,
-                    211
-                )
+                $script:AlertVisual.Muted
+
+            $x.FlatAppearance.BorderColor =
+                $script:AlertVisual.Border
 
             Set-RoundedRegion $x 8
 
@@ -2078,11 +2336,11 @@ function Render-Expanded {
             $content.Controls.Add($shell)
 
 
-            $top += 72
+            $top += ($script:AlertVisual.CardHeight + $script:AlertVisual.CardGap)
         }
         $form.Height =
             [Math]::Min(
-                ($top + 44),
+                ($top + 52),
                 610
             )
 
