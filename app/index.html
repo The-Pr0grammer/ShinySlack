@@ -868,6 +868,7 @@ button[data-ss-tip]:hover{
       <div class="activityEmpty">No Slack notifications yet.</div>
     </div>
     <div class="actions">
+      <button id="openDeck" data-ss-tip-title="Open Alert Deck" data-ss-tip="Show the floating alert deck, or bring it to the front if it is hidden behind another window.">Open Alert Deck</button>
       <button id="shutdown" data-ss-tip-title="Close Dashboard" data-ss-tip="Close only this dashboard. ShinySlack notification sounds, routing, floating alerts, and the background watcher continue running.">Close Dashboard</button>
       <button id="uninstall" data-ss-tip-title="Uninstall ShinySlack" data-ss-tip="Remove ShinySlack&#39;s local app files and watcher. Slack itself is not uninstalled.">Uninstall ShinySlack</button>
       <button id="checkUpdate" data-ss-tip-title="Check for Updates" data-ss-tip="Check GitHub for the latest published ShinySlack release. If a newer version exists, this button changes to View Update.">Check for Updates</button>
@@ -3980,6 +3981,17 @@ if(alertAutoDismiss){
     }
   };
 }
+// SHINY-DASHBOARD-OPEN-DECK-V1
+$('openDeck').onclick=async()=>{
+  const b=$('openDeck');
+  b.disabled=true;
+  try{
+    const result=await api('/api/deck/show',{method:'POST'});
+    if(result && result.ok){show(true,'Floating alert deck opened.');}
+    else{show(false,(result && result.error)||'Could not open alert deck.');}
+  }catch(e){show(false,e.message||String(e));}
+  finally{b.disabled=false;}
+};
 let updateReleaseUrl='';
 
 $('checkUpdate').onclick=async()=>{

@@ -37,6 +37,13 @@ $script:DeckPositionInitialized =
 $script:DeckScrollOffset =
     0
 
+
+# SHINY-DECK-FINISH-RESIZE-DIRECTION-V1
+$script:DeckWidth = 460
+$script:DeckHeight = 0  # zero = fit content until manually resized
+$script:ExpansionDirection = 'down'
+$script:LastLayoutDirection = 'tucked'
+$script:OverrideAnchorY = $null
 $script:ActiveDeckScrollHandler =
     $null
 
@@ -411,6 +418,31 @@ $form.Add_MouseWheel({
 })
 
 
+# SHINY-DECK-HOVER-HELP-V1
+$script:DeckHoverHelp = New-Object System.Windows.Forms.ToolTip
+$script:DeckHoverHelp.AutoPopDelay = 10000
+$script:DeckHoverHelp.InitialDelay = 450
+$script:DeckHoverHelp.ReshowDelay = 150
+$script:DeckHoverHelp.ShowAlways = $true
+# SHINY-DECK-EXPLICIT-HOVER-V5
+function Set-DeckHoverDescriptor {
+    param($Control,[string]$HelpText)
+    if(!$Control){return}
+    $script:DeckHoverHelp.SetToolTip($Control,$HelpText)
+    $textForHover = $HelpText
+    $Control.Add_MouseHover({
+        param($sender,$eventArgs)
+        try {
+            $script:DeckHoverHelp.Show($textForHover,$sender,0,-30,5000)
+        } catch {}
+    }.GetNewClosure())
+    $Control.Add_MouseLeave({
+        param($sender,$eventArgs)
+        try {$script:DeckHoverHelp.Hide($sender)} catch {}
+    })
+}
+# SHINY-DECK-LIFECYCLE-V6
+$script:DeckHiddenAt = $null
 function Get-DeckWorkingArea {
 
     try {
@@ -506,6 +538,9 @@ function Save-DeckPosition {
                 y =
                     [int]$form.Top
 
+                width = [int]$script:DeckWidth
+                height = [int]$script:DeckHeight
+                direction = [string]$script:ExpansionDirection
                 savedAt =
                     (Get-Date).ToString('o')
             } |
@@ -554,7 +589,18 @@ function Position-Form {
                     $form.Top =
                         [int]$saved.y
 
-                    $loaded =
+
+                    if($null -ne $saved.width){
+                        $script:DeckWidth = [Math]::Min(850,[Math]::Max(460,[int]$saved.width))
+                    }
+                    if($null -ne $saved.height){
+                        $h = [int]$saved.height
+                        $script:DeckHeight = if($h -gt 0){[Math]::Min(700,[Math]::Max(110,$h))}else{0}
+                    }
+                    if([string]$saved.direction -in @('up','down')){
+                        $script:ExpansionDirection = [string]$saved.direction
+                    }
+$loaded =
                         $true
                 }
             }
@@ -751,7 +797,12 @@ function Render-Tucked {
         $form.AutoScroll = $false
 
         # SHINY-DECK-CANONICAL-HEADER-V1
-        $form.Width =
+
+        if($script:LastLayoutDirection -eq 'up' -and $form.Visible){
+            $form.Top = $form.Bottom - 40
+        }
+        $script:LastLayoutDirection = 'tucked'
+$form.Width =
             360
 
         $form.Height =
@@ -1042,6 +1093,9 @@ function Render-Tucked {
         $form.Controls.Add(
             $bar
         )
+        Set-DeckHoverDescriptor $dashboard 'Open the ShinySlack dashboard'
+        Set-DeckHoverDescriptor $plus 'Show the alert cards'
+
 
 
         Position-Form
@@ -1603,14 +1657,66 @@ function Set-RoundedRegion {
         New-Object Drawing.Region($path)
 }
 
+# SHINY-DECK-RESIZE-POLL-V4
+$script:DeckResizeSession = $null
+$script:DeckResizePoller = New-Object System.Windows.Forms.Timer
+$script:DeckResizePoller.Interval = 90
+$script:DeckResizePoller.Add_Tick({
+    try {
+        $session = $script:DeckResizeSession
+        if($null -eq $session){
+            $script:DeckResizePoller.Stop()
+            return
+        }
+        $mouse = [System.Windows.Forms.Control]::MouseButtons
+        if(($mouse -band [System.Windows.Forms.MouseButtons]::Left) -eq [System.Windows.Forms.MouseButtons]::None){
+            $script:DeckResizePoller.Stop()
+            $script:DeckResizeSession = $null
+            Save-DeckPosition
+            return
+        }
+        # Ignore layout mode changes during an active drag.
+        if($script:ExpansionDirection -ne $session.Direction){return}
+        $p = [System.Windows.Forms.Cursor]::Position
+        $dx = [int]$p.X - $session.X
+        $dy = [int]$p.Y - $session.Y
+        # When docked near the right edge, dragging LEFT expands the width.
+        $horizontalDelta = if($session.RightAnchored){-$dx}else{$dx}
+        $w = [int][Math]::Min(850,[Math]::Max(460,$session.Width + $horizontalDelta))
+        $signedY = if($session.Direction -eq 'up'){-1 * $dy}else{$dy}
+        $h = [int][Math]::Min(700,[Math]::Max(160,$session.Height + $signedY))
+        if($w -eq $script:DeckWidth -and $h -eq $form.Height){return}
+        $script:DeckWidth = $w
+        $script:DeckHeight = $h
+        $script:OverrideAnchorY = [int]$session.Anchor
+        # Recreate cards, scrollbar and controls at the new dimensions.
+        Render-Expanded
+        if($session.RightAnchored){
+            $form.Left = [int]$session.Right - $form.Width
+            Clamp-DeckPosition
+        }
+    } catch {
+        # A resize must never interrupt notification polling.
+        $script:DeckResizePoller.Stop()
+        $script:DeckResizeSession = $null
+        try {Save-DeckPosition} catch {}
+    }
+})
 function Render-Expanded {
     $form.SuspendLayout()
 
     try {
+        $anchorY = if($script:LastLayoutDirection -eq 'up' -and $form.Visible){
+            $form.Bottom - 40
+        }else{ $form.Top }
+        if($null -ne $script:OverrideAnchorY){
+            $anchorY = [int]$script:OverrideAnchorY
+            $script:OverrideAnchorY = $null
+        }
         $form.Controls.Clear()
         # SHINY-DECK-CUSTOM-SCROLL-V1
         $form.AutoScroll = $false
-        $form.Width = 404
+        $form.Width = $script:DeckWidth
 
         $items = @(
             $script:Alerts |
@@ -1618,8 +1724,8 @@ function Render-Expanded {
         )
 
         if($items.Count -eq 0){
-            $form.Hide()
-            return
+            # Empty is a real state, not a reason to hide the deck.
+            $script:DeckScrollOffset = 0
         }
 
 
@@ -1638,7 +1744,7 @@ function Render-Expanded {
             0
 
         $header.Width =
-            404
+            $script:DeckWidth
 
         $header.Height =
             40
@@ -1680,7 +1786,7 @@ function Render-Expanded {
             39
 
         $bottomLine.Width =
-            404
+            $script:DeckWidth
 
         $bottomLine.Height =
             1
@@ -1759,14 +1865,9 @@ function Render-Expanded {
         $count =
             New-Object System.Windows.Forms.Label
 
-        $count.Left =
-            118
-
-        $count.Top =
-            9
-
-        $count.Width =
-            76
+        $count.Left = 112
+        $count.Top = 9
+        $count.Width = 52
 
         $count.Height =
             22
@@ -1787,11 +1888,8 @@ function Render-Expanded {
             )
 
 
-        $dashboard =
-            New-Button 'Dashboard' 118
-
-        $dashboard.Left =
-            202
+        $dashboard = New-Button 'Dashboard' 88
+        $dashboard.Left = ($script:DeckWidth - 291)
 
         $dashboard.Top =
             6
@@ -1812,7 +1910,7 @@ function Render-Expanded {
             New-Button '-' 28
 
         $minus.Left =
-            337
+            ($script:DeckWidth - 100)
 
         $minus.Top =
             6
@@ -1841,7 +1939,7 @@ function Render-Expanded {
             New-Button 'X' 28
 
         $closeAll.Left =
-            369
+            ($script:DeckWidth - 68)
 
         $closeAll.Top =
             6
@@ -1855,31 +1953,51 @@ function Render-Expanded {
 
 
         $closeAll.Add_Click({
-
-            try {
-
-                $script:Alerts.Clear()
-            }
-            catch {
-
-                while(
-                    $script:Alerts.Count -gt
-                    0
-                ){
-
-                    $script:Alerts.RemoveAt(
-                        $script:Alerts.Count -
-                        1
-                    )
-                }
-            }
-
-
-            $script:Tucked =
-                $false
-
+            # X hides the deck but retains alerts and current layout.
+            $script:DeckHiddenAt = Get-Date
             $form.Hide()
+        })        # SHINY-DECK-FINISH-RESIZE-DIRECTION-V1
+        $direction = New-Button $(if($script:ExpansionDirection -eq 'up'){'^'}else{'v'}) 28
+        $direction.Left = $script:DeckWidth - 132
+        $direction.Top = 6
+        $direction.Height = 28
+        $direction.ForeColor = $script:AlertVisual.DefaultAccent
+        $direction.Tag = 'Expand alerts upward or downward'
+        Set-RoundedRegion $direction 8
+        $direction.Add_Click({
+            $script:ExpansionDirection = if($script:ExpansionDirection -eq 'up'){'down'}else{'up'}
+            Render-Expanded
+            Save-DeckPosition
         })
+        $resizeGrip = New-Object System.Windows.Forms.Label
+        $resizeGrip.Left = $script:DeckWidth - 36
+        $resizeGrip.Top = 8
+        $resizeGrip.Width = 28
+        $resizeGrip.Height = 26
+        $resizeGrip.Text = '[+]'
+        $resizeGrip.TextAlign = 'MiddleCenter'
+        $resizeGrip.ForeColor = $script:AlertVisual.Muted
+        $resizeGrip.Font = New-Object Drawing.Font('Consolas',9,[Drawing.FontStyle]::Bold)
+        $resizeGrip.Cursor = [System.Windows.Forms.Cursors]::SizeNWSE
+        $resizeGrip.Tag = 'Drag to resize alert deck'
+        # SHINY-DECK-RESIZE-POLL-V4
+        # Cursor tracking survives redraws and works for expansion in both directions.
+        $resizeGrip.Add_MouseDown({
+            param($sender,$e)
+            if($e.Button -ne [System.Windows.Forms.MouseButtons]::Left){return}
+            if($null -ne $script:DeckResizeSession){return}
+            $p = [System.Windows.Forms.Cursor]::Position
+            $script:DeckResizeSession = [pscustomobject]@{
+                X=[int]$p.X; Y=[int]$p.Y
+                Width=[int]$script:DeckWidth; Height=[int]$form.Height
+                Anchor=[int]$(if($script:ExpansionDirection -eq 'up'){$form.Bottom - 40}else{$form.Top})
+                Direction=[string]$script:ExpansionDirection
+                Right=[int]$form.Right
+                RightAnchored=[bool](($form.Right + 20) -ge (Get-DeckWorkingArea).Right)
+            }
+            $script:DeckResizePoller.Start()
+        })
+
 
 
         $header.Controls.Add(
@@ -1913,6 +2031,28 @@ function Render-Expanded {
         $header.Controls.Add(
             $closeAll
         )
+        # SHINY-DECK-COMPACT-V5
+        # Compact resets the deck to one alert-card height; overflow remains scrollable.
+        $compact = New-Button '1' 28
+        $compact.Left = $script:DeckWidth - 198
+        $compact.Top = 6
+        $compact.Height = 28
+        $compact.ForeColor = $script:AlertVisual.DefaultAccent
+        $compact.Tag = 'Reset deck to one-card compact size'
+        Set-RoundedRegion $compact 8
+        $compact.Add_Click({
+            $anchor = if($script:ExpansionDirection -eq 'up'){$form.Bottom - 40}else{$form.Top}
+            $script:DeckWidth = 460
+            $script:DeckHeight = [int][Math]::Max(110,($script:AlertVisual.CardHeight + 52))
+            $script:OverrideAnchorY = [int]$anchor
+            $script:DeckScrollOffset = 0
+            Render-Expanded
+            Save-DeckPosition
+        })
+        $header.Controls.Add($compact)
+        Set-DeckHoverDescriptor $compact 'Reset to one-card compact size (keep all alerts; scroll for more)'
+        $header.Controls.Add($direction)
+        $header.Controls.Add($resizeGrip)
 
 
         foreach(
@@ -1944,7 +2084,7 @@ function Render-Expanded {
 
         $viewport.Left = 0
         $viewport.Top = 46
-        $viewport.Width = 394
+        $viewport.Width = ($script:DeckWidth - 10)
         $viewport.Height = 100
 
         $viewport.BackColor =
@@ -1959,7 +2099,7 @@ function Render-Expanded {
 
         $content.Left = 0
         $content.Top = 0
-        $content.Width = 390
+        $content.Width = ($script:DeckWidth - 14)
         $content.Height = 100
 
         $content.BackColor =
@@ -1969,7 +2109,7 @@ function Render-Expanded {
         $scrollRail =
             New-Object System.Windows.Forms.Panel
 
-        $scrollRail.Left = 397
+        $scrollRail.Left = ($script:DeckWidth - 7)
         $scrollRail.Top = 50
         $scrollRail.Width = 5
         $scrollRail.Height = 90
@@ -2016,8 +2156,19 @@ function Render-Expanded {
         # =====================================================
         # CARDS
         # =====================================================
-
         $top = 0
+        if($items.Count -eq 0){
+            $empty = New-Object System.Windows.Forms.Label
+            $empty.Left = 16
+            $empty.Top = 12
+            $empty.Width = [Math]::Max(150,($script:DeckWidth - 48))
+            $empty.Height = 38
+            $empty.Text = 'No alerts yet - listening for Slack notifications'
+            $empty.ForeColor = $script:AlertVisual.Muted
+            $empty.Font = New-Object Drawing.Font('Segoe UI',9)
+            $empty.TextAlign = 'MiddleLeft'
+            $content.Controls.Add($empty)
+        }
 
 
         foreach($a in $items){
@@ -2044,7 +2195,7 @@ function Render-Expanded {
 
             $shell.Left = 0
             $shell.Top = $top
-            $shell.Width = 390
+            $shell.Width = ($script:DeckWidth - 14)
             $shell.Height = $script:AlertVisual.CardHeight
 
 $shell.BackColor =
@@ -2072,7 +2223,7 @@ $shell.BackColor =
 
             $card.Left = 1
             $card.Top = 1
-            $card.Width = 388
+            $card.Width = ($script:DeckWidth - 16)
             $card.Height = ($script:AlertVisual.CardHeight - 2)
 
             $card.BackColor =
@@ -2122,7 +2273,7 @@ $shell.BackColor =
                 12
 
             $channel.Width =
-                240
+                ($script:DeckWidth - 164)
 
             $channel.Height =
                 38
@@ -2167,7 +2318,7 @@ $shell.BackColor =
             $time =
                 New-Object System.Windows.Forms.Label
 
-            $time.Left = 264
+            $time.Left = ($script:DeckWidth - 140)
             $time.Top = 19
             $time.Width = 74
             $time.Height = 22
@@ -2197,7 +2348,7 @@ $shell.BackColor =
             $x =
                 New-Button 'X' 28
 
-            $x.Left = 349
+            $x.Left = ($script:DeckWidth - 55)
             $x.Top = 19
             $x.Height = 24
             $x.Tag = $a.Id
@@ -2214,7 +2365,8 @@ $shell.BackColor =
             Set-RoundedRegion $x 8
 
 
-            $x.Add_Click({
+                        Set-DeckHoverDescriptor $x 'Dismiss this alert'
+$x.Add_Click({
                 param($sender,$eventArgs)
 
                 $id =
@@ -2258,18 +2410,10 @@ $shell.BackColor =
 
             $top += ($script:AlertVisual.CardHeight + $script:AlertVisual.CardGap)
         }
-        $form.Height =
-            [Math]::Min(
-                ($top + 52),
-                610
-            )
-
-
-        $form.Height =
-            [Math]::Max(
-                110,
-                $form.Height
-            )
+                $autoHeight = [Math]::Max(110,[Math]::Min(($top + 52),610))
+        $form.Height = if($script:DeckHeight -gt 0){
+            [Math]::Min(700,[Math]::Max(110,[int]$script:DeckHeight))
+        }else{ $autoHeight }
 
 
         $viewport.Height =
@@ -2316,7 +2460,18 @@ $shell.BackColor =
             }
 
 
-        if($maxScroll -le 0){
+                if($maxScroll -le 0){
+            # SHINY-DECK-NO-SCROLL-GUTTER-V5
+            $viewport.Width = $script:DeckWidth - 2
+            $content.Width = $script:DeckWidth - 2
+            foreach($cardShell in @($content.Controls)){
+                $cardShell.Width = $script:DeckWidth - 2
+                Set-RoundedRegion $cardShell $script:AlertVisual.CardRadius
+                foreach($innerCard in @($cardShell.Controls)){
+                    $innerCard.Width = $script:DeckWidth - 4
+                    Set-RoundedRegion $innerCard ($script:AlertVisual.CardRadius - 1)
+                }
+            }
 
             $scrollRail.Visible =
                 $false
@@ -2614,7 +2769,29 @@ $shell.BackColor =
 
 
             & $applyScroll 0
+        }        # Match the header anchor across upward/downward expansion and new alerts.
+        if($script:ExpansionDirection -eq 'up'){
+            $header.Top = $form.Height - 40
+            $viewport.Top = 0
+            $scrollRail.Top = 4
+        }else{
+            $header.Top = 0
+            $viewport.Top = 46
+            $scrollRail.Top = 50
         }
+        if($script:DeckPositionInitialized){
+            $form.Top = if($script:ExpansionDirection -eq 'up'){
+                $anchorY - ($form.Height - 40)
+            }else{ $anchorY }
+        }
+        $script:LastLayoutDirection = $script:ExpansionDirection
+        Set-DeckHoverDescriptor $dashboard 'Open the ShinySlack dashboard'
+        Set-DeckHoverDescriptor $direction $(if($script:ExpansionDirection -eq 'up') {'Alerts expand upward. Click to switch downward.'} else {'Alerts expand downward. Click to switch upward.'})
+        Set-DeckHoverDescriptor $minus 'Collapse the alert cards into the header'
+        Set-DeckHoverDescriptor $closeAll 'Hide deck and keep alerts. Use Open Alert Deck to restore.'
+        Set-DeckHoverDescriptor $resizeGrip 'Drag to resize. Use 1 to reset to compact view.'
+
+
 
 
         Position-Form
@@ -2631,6 +2808,7 @@ $shell.BackColor =
 }
 
 function Render {
+    if($script:DeckHiddenAt){ return }
     if($script:Tucked){
         Render-Tucked
     }
@@ -2782,8 +2960,17 @@ $timer.Add_Tick({
         $showFile = Join-Path $root 'persistent-alerts-show.request'
         if (Test-Path -LiteralPath $showFile) {
             Remove-Item -LiteralPath $showFile -Force -ErrorAction SilentlyContinue
+            if($script:DeckHiddenAt){
+                $now = Get-Date
+                foreach($a in @($script:Alerts)){
+                    if(!$a.ExpireAt){continue}
+                    $from = $script:DeckHiddenAt
+                    if($a.AddedAt -and $a.AddedAt -gt $from){$from=$a.AddedAt}
+                    $a.ExpireAt=$a.ExpireAt.Add($now-$from)
+                }
+                $script:DeckHiddenAt=$null
+            }
             if (-not $form.Visible) {
-                if ($script:Alerts.Count -eq 0) { $script:Tucked = $true }
                 Render
             }
             if ($form.Visible) {
@@ -2797,7 +2984,7 @@ $timer.Add_Tick({
 
     Read-Settings
     Read-NewLines
-
+    if($script:DeckHiddenAt){ return }
     # Tucked = countdown frozen.
     if($script:Tucked){ return }
     if(!$script:AutoDismiss){ return }

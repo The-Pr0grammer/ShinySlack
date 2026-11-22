@@ -2489,7 +2489,35 @@ $listener=$null}}
 
                 continue
             }
-
+            # SHINY-DASHBOARD-OPEN-DECK-V1
+            if($req.Method -eq 'POST' -and $req.Path -eq '/api/deck/show'){
+                try{
+                    $deckScript = Join-Path $script:Root 'PersistentAlerts.ps1'
+                    if(!(Test-Path -LiteralPath $deckScript)){
+                        throw 'Floating alert deck is not installed.'
+                    }
+                    $deckFull = [IO.Path]::GetFullPath($deckScript)
+                    $running = @(
+                        Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction Stop |
+                        Where-Object {
+                            $_.CommandLine -and
+                            $_.CommandLine.IndexOf('PersistentAlerts.ps1',[StringComparison]::OrdinalIgnoreCase) -ge 0 -and
+                            $_.CommandLine.IndexOf($deckFull,[StringComparison]::OrdinalIgnoreCase) -ge 0
+                        }
+                    )
+                    $requestFile = Join-Path $script:Root 'persistent-alerts-show.request'
+                    [IO.File]::WriteAllText($requestFile,(Get-Date).ToString('o'),(New-Object Text.UTF8Encoding($false)))
+                    if($running.Count -eq 0){
+                        $powershellExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+                        Start-Process -FilePath $powershellExe -ArgumentList ('-NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File "'+$deckFull+'"') -WindowStyle Hidden | Out-Null
+                    }
+                    Json-Response $client @{ok=$true;requested=$true}
+                }catch{
+                    Write-WebException $_ $rid 'Open alert deck failed'
+                    Json-Response $client @{ok=$false;error='Could not open the floating alert deck.'} 500
+                }
+                continue
+            }
             if($req.Method -eq 'GET' -and $req.Path -eq '/api/status'){
 
                 Write-WebDiag 'Building status object.' $rid
