@@ -1,10 +1,40 @@
 param([int]$Port = 38721,[switch]$NoBrowser)
 $ErrorActionPreference = 'Stop'
 $script:StopServer = $false
-$script:Token = [Convert]::ToBase64String([byte[]](1..32 | ForEach-Object { Get-Random -Minimum 0 -Maximum 256 }))
+# SHINY-PRIVACY-CRYPTO-WEB-TOKEN-V1
+$tokenBytes =
+    New-Object byte[] 32
+
+$tokenRng =
+    [Security.Cryptography.RandomNumberGenerator]::Create()
+
+try {
+
+    $tokenRng.GetBytes(
+        $tokenBytes
+    )
+
+
+    $script:Token =
+        [Convert]::ToBase64String(
+            $tokenBytes
+        )
+}
+finally {
+
+    [Array]::Clear(
+        $tokenBytes,
+        0,
+        $tokenBytes.Length
+    )
+
+
+    $tokenRng.Dispose()
+}
 $script:Root = Join-Path $env:LOCALAPPDATA 'ShinySlack'
 $script:SourceDir = $PSScriptRoot
 $script:Build = 'V17'
+$script:HistoryFeatureEnabled = $false # v2.7.5 privacy baseline
 $script:TraceLog = Join-Path $script:Root 'web-trace.log'
 
 function Write-WebDiag {
@@ -673,114 +703,33 @@ function Get-NotificationLedgerItems {
 
 function Get-HistoryBackfillStatus {
 
-    $authPath =
-        Join-Path `
-            $script:Root `
-            'history-auth.json'
-
-
-    $statusPath =
-        Join-Path `
-            $script:Root `
-            'history-backfill-status.json'
-
-
-    $connected =
-        Test-Path -LiteralPath $authPath
-
-
-    $auth =
-        $null
-
-
-    if($connected){
-
-        try {
-
-            $auth =
-                Get-Content `
-                    -LiteralPath $authPath `
-                    -Raw `
-                    -Encoding UTF8 |
-                ConvertFrom-Json
-        }
-        catch {}
-    }
-
-
-    $state =
-        $null
-
-
-    if(Test-Path -LiteralPath $statusPath){
-
-        try {
-
-            $state =
-                Get-Content `
-                    -LiteralPath $statusPath `
-                    -Raw `
-                    -Encoding UTF8 |
-                ConvertFrom-Json
-        }
-        catch {}
-    }
-
-
+    # SHINY-PRIVACY-HISTORY-DISABLED-275-V1
     [pscustomobject]@{
+        enabled =
+            $false
+
         connected =
-            $connected
+            $false
 
         teamId =
-            if($auth){
-                [string]$auth.teamId
-            }
-            else {
-                ''
-            }
+            ''
 
         teamName =
-            if($auth){
-                [string]$auth.teamName
-            }
-            else {
-                ''
-            }
+            ''
 
         userName =
-            if($auth){
-                [string]$auth.userName
-            }
-            else {
-                ''
-            }
+            ''
 
         lastRun =
-            if($state){
-                [string]$state.lastRun
-            }
-            else {
-                ''
-            }
+            ''
 
         recoveredLastRun =
-            if($state){
-                [int]$state.recoveredLastRun
-            }
-            else {
-                0
-            }
+            0
 
         lastError =
-            if($state){
-                [string]$state.lastError
-            }
-            else {
-                ''
-            }
+            'History is disabled in v2.7.5 pending the v2.8 privacy design.'
     }
 }
-
 
 function Start-HistoryBackfillOnce {
 
@@ -1890,6 +1839,40 @@ function Save-ChannelAudioUpload {
     return $destination
 }
 
+# SHINY-SEMVER-COMPARE-V1
+function Convert-ShinyVersion {
+    param([string]$Text)
+
+
+    if(
+        [string]::IsNullOrWhiteSpace(
+            $Text
+        )
+    ){
+        return $null
+    }
+
+
+    $match =
+        [regex]::Match(
+            $Text.Trim(),
+            '(?i)^v?(\d+)\.(\d+)\.(\d+)'
+        )
+
+
+    if(!$match.Success){
+        return $null
+    }
+
+
+    return [version](
+        "{0}.{1}.{2}" -f
+        $match.Groups[1].Value,
+        $match.Groups[2].Value,
+        $match.Groups[3].Value
+    )
+}
+
 $listener=$null
 try {
     for($p=$Port;$p -lt ($Port+20);$p++){try{$listener=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,$p);$listener.Start();$Port=$p;break}catch{
@@ -2312,12 +2295,33 @@ if(!$latest) {
                     }
 
                     $latestVersion = [string]$latest.tag_name
+                    # SHINY-SEMVER-UPDATE-DECISION-V1
+                    $currentComparable =
+                        Convert-ShinyVersion `
+                            $currentVersion
+
+                    $latestComparable =
+                        Convert-ShinyVersion `
+                            $latestVersion
+
+                    $updateAvailable =
+                        if(
+                            $currentComparable -and
+                            $latestComparable
+                        ){
+                            $latestComparable -gt
+                            $currentComparable
+                        }
+                        else {
+                            $latestVersion -ne
+                            $currentVersion
+                        }
 
                     Json-Response $client @{
                         ok              = $true
                         currentVersion  = $currentVersion
                         latestVersion   = $latestVersion
-                        updateAvailable = ($latestVersion -ne $currentVersion)
+                        updateAvailable = $updateAvailable
                         releaseUrl      = [string]$latest.html_url
                         prerelease      = [bool]$latest.prerelease
                     }
@@ -3062,6 +3066,22 @@ Json-Response $client @{
                 continue
             }
 
+
+            # SHINY-PRIVACY-HISTORY-ENDPOINT-GUARD-275-V1
+            if(
+                $req.Path -like '/api/history/*' -and
+                !$script:HistoryFeatureEnabled
+            ){
+                Json-Response $client @{
+                    ok =
+                        $false
+
+                    error =
+                        'Notification history is disabled in v2.7.5 pending the v2.8 privacy design.'
+                } 409
+
+                continue
+            }
 
             if(
                 $req.Method -eq 'POST' -and

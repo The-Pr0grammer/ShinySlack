@@ -829,28 +829,42 @@ button[data-ss-tip]:hover{
       </label>
     </div>
     <!-- SHINY-HISTORY-RECOVERY-HTML-V1 -->
+    <!-- SHINY-PRIVACY-HISTORY-UI-DISABLED-275-V1 -->
     <div class="historyRecoveryRow">
 
       <div class="historyRecoveryMeta">
         <div class="historyRecoveryLabel">
           OFFLINE RECOVERY
         </div>
-        <div id="historyRecoveryStatus" data-ss-tip-title="Offline Recovery" data-ss-tip="Shows whether offline Slack history recovery is connected and whether ShinySlack can recover supported activity that occurred while this PC was unavailable.">
-          Not connected
+        <div
+          id="historyRecoveryStatus"
+          data-ss-tip-title="Offline Recovery"
+          data-ss-tip="Notification history is intentionally disabled in v2.7.5 while the v2.8 privacy and retention model is designed."
+        >
+          Disabled in v2.7.5 | planned for v2.8
         </div>
       </div>
 
       <div class="historyRecoveryActions">
-        <button id="historyConnect" data-ss-tip-title="Connect History" data-ss-tip="Connect offline recovery so ShinySlack can recover supported Slack activity that happened while this PC was asleep, offline, or powered off.">
-          Connect History
+        <button
+          id="historyConnect"
+          disabled
+          data-ss-tip-title="History disabled"
+          data-ss-tip="ShinySlack v2.7.5 does not accept Slack API tokens or run history recovery."
+        >
+          Planned for v2.8
         </button>
-        <button id="historyBackfill" data-ss-tip-title="Backfill Now" data-ss-tip="Run offline recovery immediately and add supported activity from linked Slack channels since the last recovery checkpoint.">
-          Backfill Now
+        <button
+          id="historyBackfill"
+          disabled
+          data-ss-tip-title="History disabled"
+          data-ss-tip="Backfill is disabled in v2.7.5."
+        >
+          Backfill disabled
         </button>
       </div>
 
-    </div>
-    <div id="activityFeed" class="activityFeed" style="margin-top:14px">
+    </div>    <div id="activityFeed" class="activityFeed" style="margin-top:14px">
       <div class="activityEmpty">No Slack notifications yet.</div>
     </div>
     <div class="actions">
@@ -1613,6 +1627,29 @@ function renderHistoryBackfill(h){
 
 
   if(!statusEl){
+    return;
+  }
+
+
+  if(h&&h.enabled===false){
+
+    statusEl.textContent=
+      'Disabled in v2.7.5 | planned for v2.8';
+
+    if(connect){
+      connect.textContent=
+        'Planned for v2.8';
+      connect.disabled=
+        true;
+    }
+
+    if(backfill){
+      backfill.textContent=
+        'Backfill disabled';
+      backfill.disabled=
+        true;
+    }
+
     return;
   }
 

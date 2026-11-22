@@ -73,7 +73,7 @@ foreach ($name in @('ShinySlack.Common.ps1','Repair-ShinySlack.ps1','Watch-Shiny
     Copy-ShinyFileIfNeeded -Source $src -Destination (Join-Path $root $name)
 }
 Copy-Item $sourceMp3 (Join-Path $root 'custom.mp3') -Force
-Set-Content (Join-Path $root 'agent.version') 'V16' -Encoding ASCII
+Set-Content (Join-Path $root 'agent.version') 'V17' -Encoding ASCII
 
 # Persist the current web build with the installed app.
 foreach ($webName in @('ShinySlack-Web.ps1','ShinySlack-Operation.ps1','index.html','Start-ShinySlack.cmd','Start-ShinySlack.ps1','Start-ShinySlack-Background.ps1','Install-ShinySlack.ps1','version.txt')) {

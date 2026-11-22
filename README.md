@@ -1,4 +1,4 @@
-﻿# ShinySlack
+# ShinySlack
 
 **Your Slack. Your sound.**
 
@@ -72,12 +72,19 @@ It creates Start Menu/Desktop shortcuts and launches ShinySlack after installati
 
 ## Security / privacy
 
-- UI server binds to localhost only.
-- Custom MP3 stays local.
-- No Slack credentials are collected by ShinySlack.
+v2.7.5 establishes a privacy-hardened local baseline:
+
+- UI server binds to Windows loopback only.
+- Dashboard API authentication uses a cryptographically generated per-process token.
+- Live notification message text is not persisted; accessible text is hashed immediately for short-lived duplicate suppression.
+- Channel/deep-link metadata is local runtime state and is excluded from Git.
+- Notification-history/API-token features are disabled in v2.7.5 pending the v2.8 privacy design.
+- A repository privacy audit and pre-commit gate protect against accidental runtime-state/token commits.
+- Custom MP3s stay local unless intentionally added to the packaged preset library.
 - Cache writes require known stock/custom hashes; unfamiliar cache state fails closed.
 - ShinySlack is unofficial and not affiliated with Slack or Salesforce.
 
+See [docs/FAQ.md](docs/FAQ.md) for the detailed **"Is my privacy protected?"** audit answer and current threat model.
 ## Attribution
 
 The project was informed by public reverse-engineering work around Slack notification sound caching, including `SharonBrizinov/slack-sounds`. ShinySlack's Windows implementation and local web UI are separate work.

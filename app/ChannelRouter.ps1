@@ -538,6 +538,105 @@ function Get-RuntimeKey {
     return [guid]::NewGuid().ToString()
 }
 
+# SHINY-PRIVACY-HASHED-MESSAGE-FINGERPRINT-V1
+function Get-MessageFingerprintHash {
+    param($Element)
+
+
+    if(!$Element){
+        return ''
+    }
+
+
+    $raw =
+        $null
+
+    $bytes =
+        $null
+
+    $hash =
+        $null
+
+    $sha =
+        $null
+
+
+    try {
+
+        $raw =
+            [string]$Element.Current.Name
+
+
+        if(
+            [string]::IsNullOrWhiteSpace(
+                $raw
+            )
+        ){
+            return ''
+        }
+
+
+        $bytes =
+            [Text.Encoding]::UTF8.GetBytes(
+                $raw
+            )
+
+
+        $sha =
+            [Security.Cryptography.SHA256]::Create()
+
+
+        $hash =
+            $sha.ComputeHash(
+                $bytes
+            )
+
+
+        return (
+            [BitConverter]::ToString(
+                $hash
+            )
+        ).Replace(
+            '-',
+            ''
+        ).ToLowerInvariant()
+    }
+    catch {
+
+        return ''
+    }
+    finally {
+
+        # Raw accessibility text is used only long enough to hash it.
+        # No message body is written to logs, config, Activity, or Git.
+        $raw =
+            $null
+
+
+        if($bytes){
+            [Array]::Clear(
+                $bytes,
+                0,
+                $bytes.Length
+            )
+        }
+
+
+        if($hash){
+            [Array]::Clear(
+                $hash,
+                0,
+                $hash.Length
+            )
+        }
+
+
+        if($sha){
+            $sha.Dispose()
+        }
+    }
+}
+
 # SHINY-V17-NOTIFICATION-SURFACE-V2
 
 $script:RawViewWalker =
@@ -1171,8 +1270,12 @@ while($true) {
 
             # Message fingerprint fallback.
             #
-            # The text never leaves memory and is never written
-            # to the router log.
+            # Privacy rule:
+            # UI Automation may expose Slack's accessible message text.
+            # ShinySlack reads each string only long enough to compute
+            # SHA-256, then retains only the hash for short-lived dedupe.
+            # Sender/body fields are not parsed, logged, or persisted.
+
             try {
 
                 $candidateMessages =
@@ -1183,20 +1286,13 @@ while($true) {
                     )
 
 
-                $messageParts =
+                $messageHashes =
                     @(
                         $candidateMessages |
                         ForEach-Object {
 
-                            try {
-
-                                (
-                                    [string]$_.Element.Current.Name
-                                ).Trim()
-                            }
-                            catch {
-                                ''
-                            }
+                            Get-MessageFingerprintHash `
+                                -Element $_.Element
                         } |
                         Where-Object {
                             ![string]::IsNullOrWhiteSpace($_)
@@ -1204,17 +1300,16 @@ while($true) {
                     )
 
 
-                if($messageParts.Count -gt 0) {
+                if($messageHashes.Count -gt 0) {
 
                     $candidateSignatures +=
                         (
-                            "message|$channelKey|" +
-                            ($messageParts -join '||')
+                            "message-sha256|$channelKey|" +
+                            ($messageHashes -join '||')
                         )
                 }
             }
             catch {}
-
 
             $ghostReplay = $false
             $ghostReason = ''
@@ -1262,7 +1357,7 @@ while($true) {
                 # fingerprint only inside the repeatedly observed
                 # repaint window (~8 sec).
                 if(
-                    $signature.StartsWith('message|') -and
+                    $signature.StartsWith('message-sha256|') -and
                     $signatureAge -ge 6000 -and
                     $signatureAge -le 11500
                 ) {
