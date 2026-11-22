@@ -10,7 +10,7 @@ Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type -AssemblyName PresentationCore
 
-$script:Build = "TOAST-ROUTER-V3"
+$script:Build = "TOAST-ROUTER-V17"
 
 $script:Root = Join-Path $env:LOCALAPPDATA "ShinySlack"
 $script:ConfigPath = Join-Path $script:Root "channel-routes.json"
@@ -27,7 +27,6 @@ $script:Volume = 1.0
 $script:ConfigStamp = $null
 $script:Players = New-Object System.Collections.ArrayList
 
-$screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
 $desktop = [System.Windows.Automation.AutomationElement]::RootElement
 
 $teamCondition = New-Object System.Windows.Automation.PropertyCondition(
@@ -539,15 +538,252 @@ function Get-RuntimeKey {
     return [guid]::NewGuid().ToString()
 }
 
-function Test-ToastZone {
-    param($Rect)
+# SHINY-V17-NOTIFICATION-SURFACE-V2
 
-    return (
-        $Rect.Width -gt 0 -and
-        $Rect.Height -gt 0 -and
-        $Rect.X -ge ($screen.Right - 600) -and
-        $Rect.Y -ge ($screen.Bottom - 550)
+$script:RawViewWalker =
+    [System.Windows.Automation.TreeWalker]::RawViewWalker
+
+$script:SlackPidCache =
+    @{}
+
+$script:SlackPidCacheStamp =
+    [datetime]::MinValue
+
+
+if(
+    -not (
+        'ShinySlackWindowTitleV17' -as
+        [type]
     )
+){
+
+    Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public static class ShinySlackWindowTitleV17
+{
+    [DllImport(
+        "user32.dll",
+        CharSet = CharSet.Unicode,
+        SetLastError = true
+    )]
+    private static extern int GetWindowText(
+        IntPtr hWnd,
+        StringBuilder text,
+        int count
+    );
+
+    public static string Read(long handle)
+    {
+        if (handle == 0)
+            return String.Empty;
+
+        var buffer =
+            new StringBuilder(1024);
+
+        GetWindowText(
+            new IntPtr(handle),
+            buffer,
+            buffer.Capacity
+        );
+
+        return buffer.ToString();
+    }
+}
+"@
+}
+
+
+function Refresh-SlackPidCache {
+
+    if(
+        (
+            (Get-Date) -
+            $script:SlackPidCacheStamp
+        ).TotalSeconds -lt 2
+    ){
+        return
+    }
+
+
+    $next =
+        @{}
+
+
+    try {
+
+        foreach(
+            $proc in
+            @(
+                Get-Process `
+                    slack `
+                    -ErrorAction SilentlyContinue
+            )
+        ){
+
+            $next[[int]$proc.Id] =
+                $true
+        }
+    }
+    catch {}
+
+
+    $script:SlackPidCache =
+        $next
+
+
+    $script:SlackPidCacheStamp =
+        Get-Date
+}
+
+
+function Test-SlackProcessElement {
+    param($Element)
+
+
+    if(!$Element){
+        return $false
+    }
+
+
+    try {
+
+        $processId =
+            [int]$Element.Current.ProcessId
+
+
+        if($processId -le 0){
+            return $false
+        }
+
+
+        Refresh-SlackPidCache
+
+
+        return (
+            $script:SlackPidCache.ContainsKey(
+                $processId
+            )
+        )
+    }
+    catch {
+
+        return $false
+    }
+}
+
+
+function Test-SlackNotificationElement {
+    param(
+        $Element,
+        $Rect
+    )
+
+
+    if(
+        !$Element -or
+        $null -eq $Rect -or
+        $Rect.Width -le 0 -or
+        $Rect.Height -le 0
+    ){
+        return $false
+    }
+
+
+    if(
+        !(
+            Test-SlackProcessElement `
+                -Element $Element
+        )
+    ){
+        return $false
+    }
+
+
+    $node =
+        $Element
+
+
+    for(
+        $depth = 0;
+        $depth -lt 24 -and $node;
+        $depth++
+    ){
+
+        try {
+
+            $name =
+                [string]$node.Current.Name
+
+
+            $className =
+                [string]$node.Current.ClassName
+
+
+            $automationId =
+                [string]$node.Current.AutomationId
+
+
+            $nativeHandle =
+                [long]$node.Current.NativeWindowHandle
+
+
+            $nativeTitle =
+                if($nativeHandle -ne 0){
+                    [ShinySlackWindowTitleV17]::Read(
+                        $nativeHandle
+                    )
+                }
+                else {
+                    ''
+                }
+
+
+            if(
+                $name -match
+                    '(?i)(app://resources/)?notifications\.html' -or
+                $nativeTitle -match
+                    '(?i)(app://resources/)?notifications\.html' -or
+                $automationId -match
+                    '(?i)slack.*notification|notification.*slack' -or
+                $className -match
+                    '(?i)slack.*notification|notification.*slack'
+            ){
+
+                return $true
+            }
+
+
+            $parent =
+                $script:RawViewWalker.GetParent(
+                    $node
+                )
+
+
+            if(
+                !$parent -or
+                [object]::ReferenceEquals(
+                    $parent,
+                    $desktop
+                )
+            ){
+                break
+            }
+
+
+            $node =
+                $parent
+        }
+        catch {
+
+            break
+        }
+    }
+
+
+    return $false
 }
 
 function Get-ToastTeams {
@@ -564,7 +800,7 @@ function Get-ToastTeams {
         try {
             $rect = $e.Current.BoundingRectangle
 
-            if(!(Test-ToastZone $rect)) {
+            if(!(Test-SlackNotificationElement -Element $e -Rect $rect)) {
                 continue
             }
 
@@ -599,7 +835,7 @@ function Get-ToastChannels {
         try {
             $rect = $e.Current.BoundingRectangle
 
-            if(!(Test-ToastZone $rect)) {
+            if(!(Test-SlackNotificationElement -Element $e -Rect $rect)) {
                 continue
             }
 
@@ -657,13 +893,15 @@ function Get-ToastMessages {
             }
 
             if(
-                $rect.X -lt ($screen.Right - 700) -or
-                $rect.Y -lt ($screen.Bottom - 700)
+                !(
+                    Test-SlackNotificationElement `
+                        -Element $e `
+                        -Rect $rect
+                )
             ) {
                 continue
             }
-
-            $nearChannel = $false
+$nearChannel = $false
 
             foreach($c in @($Channels)) {
 
@@ -774,17 +1012,17 @@ Load-Config
 Prime-SoundCache
 
 Say ""
-Say "ShinySlack Toast Router V2" Cyan
+Say "ShinySlack Toast Router V17" Cyan
 Say "==========================" DarkCyan
 Say ""
-Say "Toast detection owns the event." Green
+Say "Slack built-in notification detection owns the event." Green
 Say "Channel is optional routing metadata." Green
 Say "No channel/mapping -> DEFAULT." Yellow
 Say ""
 Say "READY." Green
 Say ""
 
-Write-RouterLog "START build=$script:Build mode=channel-first"
+Write-RouterLog "START build=$script:Build mode=channel-first scope=slack-built-in location=any-monitor"
 
 # Channel elements own normal channel notifications.
 # OpenTeam is only a fallback for notifications that expose no channel.
@@ -839,7 +1077,7 @@ while($true) {
 
         # ------------------------------------------------------------
         # PRIMARY PATH
-        # OpenChannel appearing in the toast zone fires immediately.
+        # OpenChannel on a Slack built-in notification surface fires immediately.
         # ------------------------------------------------------------
 
         $channels = @(Get-ToastChannels)

@@ -4,7 +4,7 @@ $script:StopServer = $false
 $script:Token = [Convert]::ToBase64String([byte[]](1..32 | ForEach-Object { Get-Random -Minimum 0 -Maximum 256 }))
 $script:Root = Join-Path $env:LOCALAPPDATA 'ShinySlack'
 $script:SourceDir = $PSScriptRoot
-$script:Build = 'V16'
+$script:Build = 'V17'
 $script:TraceLog = Join-Path $script:Root 'web-trace.log'
 
 function Write-WebDiag {
@@ -242,7 +242,7 @@ function Sync-InstalledShinySlackAgent {
 
 Sync-InstalledShinySlackAgent
 
-$mutex = New-Object System.Threading.Mutex -ArgumentList $false, 'Local\ShinySlackWebServerV16PA4'
+$mutex = New-Object System.Threading.Mutex -ArgumentList $false, 'Local\ShinySlackWebServerV17PA1'
 $hasMutex = $false
 try { $hasMutex = $mutex.WaitOne(0,$false) } catch [Threading.AbandonedMutexException] { $hasMutex = $true }
 if (!$hasMutex) {

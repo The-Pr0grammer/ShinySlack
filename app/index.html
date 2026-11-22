@@ -633,7 +633,7 @@ button[data-ss-tip]:hover{
 </head>
 <body>
 <div class="wrap">
-  <div class="brand"><div class="logo">S</div><h1>ShinySlack</h1><span id="versionBadge" style="font:12px Consolas,monospace;color:#55d9ff;border:1px solid #2d5363;border-radius:999px;padding:4px 8px">CHECKING · ENGINE V16</span></div>
+  <div class="brand"><div class="logo">S</div><h1>ShinySlack</h1><span id="versionBadge" style="font:12px Consolas,monospace;color:#55d9ff;border:1px solid #2d5363;border-radius:999px;padding:4px 8px">CHECKING · ENGINE V17</span></div>
   <p class="tag">Your Slack. Your sound. Local-only Windows patcher.</p>
 
   <div class="grid">
@@ -659,6 +659,16 @@ button[data-ss-tip]:hover{
       <div>
         <h2 style="margin-bottom:4px">Channel Sounds</h2>
         <div class="sub">Give every Slack channel its own sound, with a default for everything else. Changes apply instantly.</div>
+        <!-- SHINY-V17-DETECTION-SCOPE-V1 -->
+        <div
+          class="notice"
+          style="margin-top:12px"
+        >
+          <b>Detection scope:</b>
+          ShinySlack V17 listens for <b>Slack built-in desktop notifications</b>
+          anywhere on any connected monitor.
+          <b>Windows Notification Center / Action Center alerts are not supported.</b>
+        </div>
       </div>
       <span style="font:11px Consolas,monospace;color:#54e39a;border:1px solid #28543d;border-radius:999px;padding:5px 9px">LIVE CONFIG</span>
     </div>
@@ -953,7 +963,7 @@ function setShinyLatestVersion(version){
 
   badge.textContent=
     String(version).toUpperCase()+
-    ' · ENGINE V16';
+    ' · ENGINE V17';
 }
 
 
@@ -1021,7 +1031,7 @@ async function syncShinyLatestVersion(){
     ){
 
       badge.textContent=
-        'VERSION ? · ENGINE V16';
+        'VERSION ? · ENGINE V17';
     }
   }
 }
@@ -3499,7 +3509,7 @@ async function status(){
       staleResult.className='result';
       staleResult.textContent='';
     }
-    if(s.build && s.build!=='V16'){show(false,'Backend/UI build mismatch: '+s.build+' is serving this page. Restart ShinySlack V16.');}
+    if(s.build && s.build!=='V17'){show(false,'Backend/UI build mismatch: '+s.build+' is serving this page. Restart ShinySlack V17.');}
     $('slack').textContent=s.slackRunning?'Running':'Closed'; cls($('slack'),s.slackRunning?'good':'warn');
     $('cache').textContent=s.cachePresent?'Present':'Missing'; cls($('cache'),s.cachePresent?'good':'bad');
     const soundText = s.health==='Custom'?'Custom verified':(s.health==='ConfiguredDeferred'?'Custom configured':(s.health==='Deferred'?'Check deferred':s.health));
