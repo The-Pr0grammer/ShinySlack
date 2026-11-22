@@ -115,7 +115,7 @@ jobs:
             'ShinySlackSetup.exe',
             'releases?per_page=20',
             'How do I open it later?',
-            'Windows Action Center'
+            'Notification Center / Action Center'
           )) {
             if(!$landing.Contains($needle)) {
               throw "Landing-page contract missing: $needle"
