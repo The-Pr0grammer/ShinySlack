@@ -957,7 +957,7 @@ const __shinyOriginalApi=
   api;
 
 
-function setShinyLatestVersion(version){
+function setShinyInstalledVersion(version){
 
   if(!version){
     return;
@@ -986,7 +986,7 @@ function setShinyLatestVersion(version){
  *
  * Every caller still receives the exact same response.
  * We only observe /api/update/check and mirror its
- * latestVersion into the badge.
+ * currentVersion into the badge.
  */
 api=
   async function(path,options={}){
@@ -1004,8 +1004,8 @@ api=
       result.latestVersion
     ){
 
-      setShinyLatestVersion(
-        result.latestVersion
+      setShinyInstalledVersion(
+        result.currentVersion
       );
     }
 
