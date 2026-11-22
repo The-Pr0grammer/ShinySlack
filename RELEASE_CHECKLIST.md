@@ -1,6 +1,6 @@
 # ShinySlack beta release checklist
 
-For v2.7.8: verify the three deck growth states, resize, hover help after hide/reopen, the dashboard Open Deck control, the installer hash, and Check for Updates from a v2.7.5 installation.
+For v2.7.9: verify persistent volume after release/reopen, low/muted red indicators in both deck modes, compact volume accessibility, four-corner resize, header drag, double-click minimize/restore, palette-cycling ShinySlack glow and sparkle, and automatic unmute after both interfaces close. Verify Test Slackbot, real Slack notifications, installer checksum, safe upgrade and Check for Updates from the older installer.
 
 - [ ] Confirm V16 all-green dashboard on the development machine.
 - [ ] Confirm `app/` PowerShell parser validation passes in GitHub Actions.

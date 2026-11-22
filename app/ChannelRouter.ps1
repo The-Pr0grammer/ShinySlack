@@ -1180,6 +1180,76 @@ function Invoke-SlackbotTestRequest {
         Write-RouterLog ("TEST_SLACKBOT_ERROR " + $_.Exception.Message)
     }
 }
+# SHINY-MUTE-FAILSAFE-279-V1
+# Fail open to audible notifications if both client interfaces disappear.
+$script:MuteSafetyLastRun = [datetime]::MinValue
+$script:MuteSafetyLastAudible = 0.5
+$script:MuteSafetyLastSaved = -1.0
+$script:MuteSafetyStarted = Get-Date
+$script:MuteSafetyDashboard = Join-Path $script:Root 'dashboard-visible.heartbeat'
+$script:MuteSafetyDeck = Join-Path $script:Root 'deck-visible.heartbeat'
+$script:MuteSafetyLastVolume = Join-Path $script:Root 'last-audible-volume.txt'
+try {
+    if(Test-Path -LiteralPath $script:MuteSafetyLastVolume){
+        $prior=[double]::Parse(
+            (Get-Content -LiteralPath $script:MuteSafetyLastVolume -Raw).Trim(),
+            [Globalization.CultureInfo]::InvariantCulture
+        )
+        if($prior -gt 0 -and $prior -le 1){$script:MuteSafetyLastAudible=$prior}
+    }
+} catch {}
+function Test-MuteSafetyClientFresh {
+    param([string]$Path)
+    try {
+        if(!(Test-Path -LiteralPath $Path)){return $false}
+        $age=((Get-Date).ToUniversalTime() - (Get-Item -LiteralPath $Path).LastWriteTimeUtc).TotalSeconds
+        return ($age -ge -5 -and $age -le 90)
+    } catch {return $false}
+}
+function Invoke-MuteSafetyGuard {
+    if(((Get-Date)-$script:MuteSafetyLastRun).TotalSeconds -lt 5){return}
+    $script:MuteSafetyLastRun=Get-Date
+    try {
+        $ownership=Join-Path $script:Root 'sound-ownership.json'
+        if(!(Test-Path -LiteralPath $ownership)){return}
+        $mode=Get-Content -LiteralPath $ownership -Raw -Encoding UTF8 | ConvertFrom-Json
+        if([string]$mode.mode -ne 'routerExclusive' -or [bool]$mode.transition){return}
+        $cfg=Get-Content -LiteralPath $script:ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if($null -eq $cfg){return}
+        $vol=if($null -eq $cfg.volume){1.0}else{[double]$cfg.volume}
+        $enabled=if($null -eq $cfg.enabled){$true}else{[bool]$cfg.enabled}
+        if($vol -gt 0 -and $vol -le 1){
+            $script:MuteSafetyLastAudible=$vol
+            if($script:MuteSafetyLastSaved -ne $vol){
+                [IO.File]::WriteAllText($script:MuteSafetyLastVolume,
+                    $vol.ToString('R',[Globalization.CultureInfo]::InvariantCulture),
+                    (New-Object Text.UTF8Encoding($false)))
+                $script:MuteSafetyLastSaved=$vol
+            }
+        }
+        if($enabled -and $vol -gt 0){return}
+        # Allow browser tab throttling and startup; if in doubt restore audio.
+        if(((Get-Date)-$script:MuteSafetyStarted).TotalSeconds -lt 90){return}
+        if((Test-MuteSafetyClientFresh $script:MuteSafetyDashboard) -or
+           (Test-MuteSafetyClientFresh $script:MuteSafetyDeck)){return}
+        $safeVol=if($vol -gt 0){$vol}else{$script:MuteSafetyLastAudible}
+        $safeVol=[Math]::Max(0.01,[Math]::Min(1.0,$safeVol))
+        if($cfg.PSObject.Properties['enabled']){$cfg.enabled=$true}
+        else{$cfg|Add-Member -NotePropertyName enabled -NotePropertyValue $true}
+        if($cfg.PSObject.Properties['volume']){$cfg.volume=$safeVol}
+        else{$cfg|Add-Member -NotePropertyName volume -NotePropertyValue $safeVol}
+        $temp=$script:ConfigPath+'.safety-'+[guid]::NewGuid().ToString('N')+'.tmp'
+        try {
+            [IO.File]::WriteAllText($temp,($cfg|ConvertTo-Json -Depth 15),
+                (New-Object Text.UTF8Encoding($false)))
+            Move-Item -LiteralPath $temp -Destination $script:ConfigPath -Force -ErrorAction Stop
+        } finally {Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue}
+        Write-RouterLog ("MUTE_SAFETY_RESTORED volume=$safeVol reason=no-active-dashboard-or-visible-deck")
+        Load-Config
+    } catch {
+        Write-RouterLog ("MUTE_SAFETY_ERROR $($_.Exception.Message)")
+    }
+}
 Load-Config
 Prime-SoundCache
 
@@ -1243,6 +1313,7 @@ while($true) {
     try {
 
         Reload-ConfigIfChanged
+        Invoke-MuteSafetyGuard
         Cleanup-Players
         Invoke-SlackbotTestRequest
 

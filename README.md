@@ -2,7 +2,7 @@
 
 **Your Slack. Your sound. Your alerts.**
 
-**Current Windows release: v2.7.8.** Previous v2.7.5 installers remain archived under their original release tag.
+**Current Windows release: v2.7.9.** Previous v2.7.5 installers remain archived under their original release tag.
 
 ShinySlack is a local-first Windows companion for Slack Desktop. It adds custom notification sounds, per-channel routing, a persistent visual alert deck, native Slack deep links, and a live Activity feed without sending your notification data to a ShinySlack server.
 
@@ -50,7 +50,7 @@ ShinySlack's live detector follows Slack's own desktop notification windows acro
 - Per-channel notification sounds.
 - Built-in mastered sound preset library.
 - Universal ShinySlack volume control.
-- Persistent, resizable visual alert deck with up/down expansion, three growth modes (Auto / Reset once / Lock one card), compact reset, and hover help.
+- Persistent visual alert deck with four-corner resizing, double-click minimize/restore, an accessible compact volume control with red muted warning, animated accent-glow title, up/down expansion, three growth modes, and hover help.
 - Native deep links back into Slack Desktop for linked channels.
 - Low-latency live Activity feed.
 - Local sound-ownership safety/fallback controls.
@@ -83,6 +83,10 @@ ShinySlack currently detects **Slack Desktop's built-in notification windows** u
 - Does not consume Windows Action Center notifications.
 
 If your Slack notifications are configured to go only through Windows Action Center instead of Slack's built-in notification UI, the live ShinySlack detector will not see them.
+
+## Deck volume and mute safety
+
+Router audio volume is shared between the dashboard and deck. The compact deck keeps a visible red warning when muted or at 20% or lower. In Router-owned audio mode, ShinySlack restores audible volume after both user interfaces have been inactive for approximately 90 seconds. Native Fallback mode remains unchanged. The deck has four-corner resize, header double-click minimize/restore, and a title glow cycling through alert accents.
 
 ## Installer behavior
 

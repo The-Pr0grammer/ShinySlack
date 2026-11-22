@@ -1,3 +1,4 @@
+# SHINY-DECK-SPARKLE-279-V1: U+2728 header titles; keep four-dot drag grip.
 $ErrorActionPreference = 'Stop'
 
 Add-Type -AssemblyName System.Windows.Forms
@@ -413,6 +414,9 @@ $form.Width = 390
 $form.Height = 100
 $form.Opacity = 1.0
 $form.AutoScroll = $false
+$form.Add_Move({
+    if($script:DeckVolumeWindow -and $script:DeckVolumeWindow.Visible){Position-DeckVolumeWindow}
+})
 # SHINY-DECK-GLOBAL-WHEEL-V1
 $form.Add_MouseWheel({
     param($sender,$eventArgs)
@@ -752,51 +756,69 @@ public static class ShinySlackDeckDragV1
 }
 
 
+# SHINY-DECK-ICONS-CORNERS-DOUBLECLICK-V1
+$script:DeckHeaderDragOrigin = $null
+function Toggle-DeckHeaderDoubleClick {
+    if($null -ne $script:DeckResizeSession){return}
+    $script:DeckHeaderDragOrigin = $null
+    Hide-DeckHoverPopup
+    if($script:Tucked) {
+        $now = Get-Date
+        foreach($a in @($script:Alerts)) {
+            if(!$a.ExpireAt){continue}
+            $from=$script:TuckStarted
+            if($a.AddedAt -and $a.AddedAt -gt $from){$from=$a.AddedAt}
+            if($from){$a.ExpireAt=$a.ExpireAt.Add($now-$from)}
+        }
+        $script:Tucked=$false
+        $script:TuckStarted=$null
+        $script:DeckGrowthMode='auto'
+        $script:DeckHeight=0
+        $script:DeckScrollOffset=0
+        Render-Expanded
+    } else {
+        $script:Tucked=$true
+        $script:TuckStarted=Get-Date
+        Render-Tucked
+    }
+    Save-DeckPosition
+}
 function Enable-DeckDrag {
     param($Control)
-
-    if(!$Control){
-        return
-    }
-
-
-    $Control.Cursor =
-        [System.Windows.Forms.Cursors]::SizeAll
-
-
+    if(!$Control){return}
+    $Control.Cursor = [System.Windows.Forms.Cursors]::SizeAll
     $Control.Add_MouseDown({
-
-        param(
-            $sender,
-            $eventArgs
-        )
-
-
-        if(
-            $eventArgs.Button -ne
-            [System.Windows.Forms.MouseButtons]::Left
-        ){
-            return
+        param($sender,$e)
+        if($e.Button -ne [System.Windows.Forms.MouseButtons]::Left){return}
+        if($e.Clicks -gt 1){$script:DeckHeaderDragOrigin=$null;return}
+        $p=[System.Windows.Forms.Cursor]::Position
+        $script:DeckHeaderDragOrigin=[pscustomobject]@{X=[int]$p.X;Y=[int]$p.Y}
+    })
+    $Control.Add_MouseMove({
+        param($sender,$e)
+        if($null -eq $script:DeckHeaderDragOrigin){return}
+        if(([System.Windows.Forms.Control]::MouseButtons -band [System.Windows.Forms.MouseButtons]::Left) -eq [System.Windows.Forms.MouseButtons]::None){
+            $script:DeckHeaderDragOrigin=$null;return
         }
-
-
+        $p=[System.Windows.Forms.Cursor]::Position
+        if([Math]::Abs($p.X-$script:DeckHeaderDragOrigin.X)+[Math]::Abs($p.Y-$script:DeckHeaderDragOrigin.Y) -lt 6){return}
+        $script:DeckHeaderDragOrigin=$null
         [void][ShinySlackDeckDragV1]::ReleaseCapture()
-
-
-        [void][ShinySlackDeckDragV1]::SendMessage(
-            $form.Handle,
-            0x00A1,
-            [IntPtr]2,
-            [IntPtr]::Zero
-        )
-
-
+        [void][ShinySlackDeckDragV1]::SendMessage($form.Handle,0x00A1,[IntPtr]2,[IntPtr]::Zero)
         Clamp-DeckPosition
         Save-DeckPosition
     })
+    $Control.Add_MouseUp({$script:DeckHeaderDragOrigin=$null})
+    $Control.Add_DoubleClick({Toggle-DeckHeaderDoubleClick})
 }
-
-
+# Icon glyphs use Windows' built-in Segoe MDL2 Assets font.
+function Set-DeckIcon {
+    param($Button,[string]$Glyph,[string]$Accessible)
+    $Button.Text=$Glyph
+    $Button.Font=New-Object Drawing.Font('Segoe MDL2 Assets',11,[Drawing.FontStyle]::Regular)
+    $Button.AccessibleName=$Accessible
+    $Button.TextAlign=[Drawing.ContentAlignment]::MiddleCenter
+}
 # SHINY-DECK-OPEN-DASHBOARD-V1
 function Open-ShinySlackDashboard {
 
@@ -878,8 +900,233 @@ function Open-ShinySlackDashboard {
     catch {}
 }
 
-function Render-Tucked {
+# SHINY-DECK-REBUILD-V1: Deck volume settings shared with dashboard.
+$script:DeckVolumeButton=$null
+$script:DeckVolumePanel=$null
+$script:DeckVolumeSlider=$null
+$script:DeckVolumeValue=$null
+$script:DeckVolumeEnabled=$true
+$script:DeckVolumePercent=100
+$script:DeckVolumeReadAt=[datetime]::MinValue
+$script:DeckVolumeDragging=$false
+# SHINY-DECK-VOLUME-WINDOW-FIX-V1
+$script:DeckVolumeWindow=$null
+function Position-DeckVolumeWindow {
+    if(!$script:DeckVolumeWindow -or $script:DeckVolumeWindow.IsDisposed){return}
+    if(!$script:DeckVolumeButton -or $script:DeckVolumeButton.IsDisposed){return}
+    $origin=$script:DeckVolumeButton.PointToScreen((New-Object Drawing.Point(0,0)))
+    $bounds=[System.Windows.Forms.Screen]::FromPoint($origin).WorkingArea
+    $popup=$script:DeckVolumeWindow
+    $left=[int]$origin.X + $script:DeckVolumeButton.Width - $popup.Width
+    $left=[Math]::Max($bounds.Left+4,[Math]::Min($left,$bounds.Right-$popup.Width-4))
+    $below=[int]$origin.Y + $script:DeckVolumeButton.Height + 6
+    $above=[int]$origin.Y - $popup.Height - 6
+    $top=if($below+$popup.Height -le $bounds.Bottom-4){$below}else{$above}
+    $top=[Math]::Max($bounds.Top+4,[Math]::Min($top,$bounds.Bottom-$popup.Height-4))
+    $popup.Location=New-Object Drawing.Point($left,$top)
+}
+function Hide-DeckVolumeWindow {
+    if($script:DeckVolumeWindow -and !$script:DeckVolumeWindow.IsDisposed){
+        $script:DeckVolumeWindow.Hide()
+    }
+    $script:DeckVolumeDragging=$false
+}
+function Toggle-DeckVolumeWindow {
+    if(!$script:DeckVolumeWindow -or $script:DeckVolumeWindow.IsDisposed){return}
+    if($script:DeckVolumeWindow.Visible){Hide-DeckVolumeWindow;return}
+    Read-DeckVolume
+    Update-DeckVolumeVisual
+    Position-DeckVolumeWindow
+    # Modeless, reusable Form: no ContextMenuStrip, no disposal on hide.
+    $script:DeckVolumeWindow.Show($form)
+    $script:DeckVolumeWindow.BringToFront()
+}
+function Read-DeckVolume {
+    $config=Join-Path $root 'channel-routes.json'
+    if(!(Test-Path -LiteralPath $config)){return}
+    try {
+        $cfg=Get-Content -LiteralPath $config -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
+        $script:DeckVolumeEnabled=($null -eq $cfg.enabled -or [bool]$cfg.enabled)
+        $v=if($null -eq $cfg.volume){1.0}else{[double]$cfg.volume}
+        $script:DeckVolumePercent=[int][Math]::Round([Math]::Min(1.0,[Math]::Max(0.0,$v))*100)
+    } catch {} # Ignore partial config write by other components; retry next tick.
+}
+# SHINY-DECK-VOLUME-SAVE-V2: reliable commit and visible diagnostic on failure.
+function Write-DeckVolume {
+    param([int]$Percent)
+    $Percent=[int][Math]::Min(100,[Math]::Max(0,$Percent))
+    $config=Join-Path $root 'channel-routes.json'
+    $errorLog=Join-Path $root 'deck-volume-save.error.log'
+    if(!(Test-Path -LiteralPath $config)){
+        try {Add-Content -LiteralPath $errorLog -Value ('{0} Missing channel-routes.json' -f (Get-Date -Format o))}catch{}
+        return
+    }
+    $temp=$config+'.deck-'+[guid]::NewGuid().ToString('N')+'.tmp'
+    $backup=$config+'.deck-save.backup'
+    $lastError=$null
+    try {
+        # Preserve every property except volume and enabled. Never replace
+        # route or deep-link configuration with a partial object.
+        $cfg=Get-Content -LiteralPath $config -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        if($null -eq $cfg.PSObject.Properties['volume']){
+            $cfg | Add-Member -NotePropertyName 'volume' -NotePropertyValue 1.0
+        }
+        if($null -eq $cfg.PSObject.Properties['enabled']){
+            $cfg | Add-Member -NotePropertyName 'enabled' -NotePropertyValue $true
+        }
+        $cfg.volume=[double]($Percent / 100.0)
+        $cfg.enabled=($Percent -gt 0)
+        $updated=$cfg | ConvertTo-Json -Depth 32 -ErrorAction Stop
+        [IO.File]::WriteAllText($temp,$updated,(New-Object Text.UTF8Encoding($false)))
+        # File.Replace with an actual backup; Windows can reject a null
+        # backup path on some configurations. Preserve recoverability.
+        for($attempt=1;$attempt -le 3;$attempt++){
+            try {
+                if(Test-Path -LiteralPath $config){
+                    [IO.File]::Replace($temp,$config,$backup)
+                } else {
+                    Move-Item -LiteralPath $temp -Destination $config -ErrorAction Stop
+                }
+                $lastError=$null
+                break
+            } catch {
+                $lastError=$_
+                if($attempt -lt 3){Start-Sleep -Milliseconds 80}
+            }
+        }
+        if($lastError){throw $lastError}
+        # Verify on disk, do not mislead the user with a falsely saved slider.
+        $saved=Get-Content -LiteralPath $config -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        $savedPercent=[int][Math]::Round(([double]$saved.volume)*100)
+        if($savedPercent -ne $Percent -or ([bool]$saved.enabled) -ne ($Percent -gt 0)){
+            throw ('Save verification mismatch: wanted {0}%, disk reports {1}%' -f $Percent,$savedPercent)
+        }
+        $script:DeckVolumePercent=$Percent
+        $script:DeckVolumeEnabled=($Percent -gt 0)
+        $script:DeckVolumeReadAt=Get-Date
+        Update-DeckVolumeVisual
+    } catch {
+        $message=$_.Exception.Message
+        try {Add-Content -LiteralPath $errorLog -Value ('{0} requested={1}% {2}' -f (Get-Date -Format o),$Percent,$message) -Encoding UTF8} catch {}
+        # Keep the chosen value on screen briefly; the periodic refresh can
+        # reflect the actual disk state later. Most importantly, surface the
+        # failure instead of silently snapping back with no explanation.
+        $script:DeckVolumeReadAt=Get-Date
+        try {
+            if($script:DeckVolumeValue -and !$script:DeckVolumeValue.IsDisposed){
+                $script:DeckVolumeValue.Text='SAVE ERROR'
+                $script:DeckVolumeValue.ForeColor=[Drawing.Color]::FromArgb(255,99,119)
+            }
+        } catch {}
+    } finally {
+        Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
+    }
+}
 
+function Update-DeckVolumeVisual {
+    $muted=(-not $script:DeckVolumeEnabled -or $script:DeckVolumePercent -le 0)
+    $warning=($muted -or $script:DeckVolumePercent -le 20)
+    $color=if($warning){[Drawing.Color]::FromArgb(255,99,119)}else{[Drawing.Color]::FromArgb(85,216,255)}
+    if($script:DeckVolumeButton -and !$script:DeckVolumeButton.IsDisposed){
+        $script:DeckVolumeButton.ForeColor=$color
+        $script:DeckVolumeButton.Text=if($muted){[string][char]0xE74F}else{[string][char]0xE767}
+    }
+    if($script:DeckVolumeValue -and !$script:DeckVolumeValue.IsDisposed){
+        $script:DeckVolumeValue.Text=if($muted){'MUTED'}else{"$($script:DeckVolumePercent)%"}
+        $script:DeckVolumeValue.ForeColor=$color
+    }
+    if($script:DeckVolumeSlider -and !$script:DeckVolumeSlider.IsDisposed){$script:DeckVolumeSlider.Invalidate()}
+}
+function Set-DeckVolumeFromMouse {
+    param($Control,[int]$X)
+    if(!$Control -or $Control.Width -le 24){return}
+    # Update the drawing while dragging; commit once on mouse release.
+    $value=[int][Math]::Round(([Math]::Min($Control.Width-12,[Math]::Max(12,$X))-12)*100.0/($Control.Width-24))
+    $script:DeckVolumePercent=$value
+    $script:DeckVolumeEnabled=($value -gt 0)
+    Update-DeckVolumeVisual
+}
+function Add-DeckInlineVolume {
+    param([int]$Left,[int]$Top)
+    # Kept as the existing render entry point. Create only ONE reusable
+    # modeless Form, independent of the resizable deck's clipped client area.
+    if($script:DeckVolumeWindow -and !$script:DeckVolumeWindow.IsDisposed){return}
+    $popup=New-Object System.Windows.Forms.Form
+    $popup.Name='ShinySlackVolumeWindow'
+    $popup.FormBorderStyle=[System.Windows.Forms.FormBorderStyle]::None
+    $popup.ShowInTaskbar=$false
+    $popup.StartPosition=[System.Windows.Forms.FormStartPosition]::Manual
+    $popup.TopMost=$true
+    $popup.Width=254
+    $popup.Height=70
+    $popup.BackColor=[Drawing.Color]::FromArgb(15,21,32)
+    $popup.KeyPreview=$true
+    $popup.Add_KeyDown({param($sender,$e)
+        if($e.KeyCode -eq [System.Windows.Forms.Keys]::Escape){Hide-DeckVolumeWindow}
+    })
+    $panel=New-Object System.Windows.Forms.Panel
+    $panel.Name='DeckVolumeSurface'
+    $panel.Dock=[System.Windows.Forms.DockStyle]::Fill
+    $panel.BackColor=$popup.BackColor
+    $panel.BorderStyle=[System.Windows.Forms.BorderStyle]::FixedSingle
+    $name=New-Object System.Windows.Forms.Label
+    $name.Text='ROUTER VOLUME';$name.Left=10;$name.Top=6;$name.Width=145;$name.Height=19
+    $name.Font=New-Object Drawing.Font('Segoe UI',8,[Drawing.FontStyle]::Bold)
+    $name.ForeColor=$script:AlertVisual.Muted
+    $value=New-Object System.Windows.Forms.Label
+    $value.Left=174;$value.Top=6;$value.Width=65;$value.Height=19
+    $value.TextAlign='MiddleRight'
+    $value.Font=New-Object Drawing.Font('Segoe UI',8,[Drawing.FontStyle]::Bold)
+    $slider=New-Object System.Windows.Forms.Panel
+    $slider.Name='DeckVolumeTrack';$slider.Left=8;$slider.Top=32;$slider.Width=232;$slider.Height=28
+    $slider.Cursor=[System.Windows.Forms.Cursors]::Hand
+    $slider.BackColor=$panel.BackColor
+    $slider.Add_Paint({
+        param($sender,$e)
+        $g=$e.Graphics
+        $g.SmoothingMode=[Drawing.Drawing2D.SmoothingMode]::AntiAlias
+        $p=[Math]::Min(100,[Math]::Max(0,$script:DeckVolumePercent))
+        $alert=(-not $script:DeckVolumeEnabled -or $p -le 20)
+        $fill=if($alert){[Drawing.Color]::FromArgb(255,99,119)}else{[Drawing.Color]::FromArgb(85,216,255)}
+        $x=12+[int][Math]::Round(($sender.Width-24)*$p/100.0)
+        $bg=New-Object Drawing.Pen -ArgumentList @([Drawing.Color]::FromArgb(54,66,84),4)
+        $fg=New-Object Drawing.Pen -ArgumentList @($fill,4)
+        $brush=New-Object Drawing.SolidBrush -ArgumentList @($fill)
+        try {
+            $g.DrawLine($bg,12,14,$sender.Width-12,14)
+            if($x -gt 12){$g.DrawLine($fg,12,14,$x,14)}
+            $g.FillEllipse($brush,$x-7,7,14,14)
+        } finally {$bg.Dispose();$fg.Dispose();$brush.Dispose()}
+    })
+    $slider.Add_MouseDown({param($sender,$e)
+        if($e.Button -ne [System.Windows.Forms.MouseButtons]::Left){return}
+        $script:DeckVolumeDragging=$true
+        Set-DeckVolumeFromMouse $sender $e.X
+        $sender.Capture=$true
+    })
+    $slider.Add_MouseMove({param($sender,$e)
+        if(!$script:DeckVolumeDragging){return}
+        if(($e.Button -band [System.Windows.Forms.MouseButtons]::Left) -ne [System.Windows.Forms.MouseButtons]::Left){return}
+        Set-DeckVolumeFromMouse $sender $e.X
+    })
+    $slider.Add_MouseUp({param($sender,$e)
+        if(!$script:DeckVolumeDragging){return}
+        Set-DeckVolumeFromMouse $sender $e.X
+        $script:DeckVolumeDragging=$false
+        $sender.Capture=$false
+        Write-DeckVolume -Percent $script:DeckVolumePercent
+    })
+    $panel.Controls.Add($name);$panel.Controls.Add($value);$panel.Controls.Add($slider)
+    $popup.Controls.Add($panel)
+    $script:DeckVolumeWindow=$popup
+    $script:DeckVolumePanel=$panel
+    $script:DeckVolumeSlider=$slider
+    $script:DeckVolumeValue=$value
+    Read-DeckVolume
+    Update-DeckVolumeVisual
+}
+function Render-Tucked {
+    Hide-DeckVolumeWindow
     $form.SuspendLayout()
 
     try {
@@ -991,16 +1238,38 @@ $form.Width =
             10
 
         $title.Width =
-            78
+            111
 
         $title.Height =
             19
 
         $title.Text =
-            'ShinySlack'
+            ('ShinySlack ' + [string][char]0x2728)
 
         $title.ForeColor =
-            $script:AlertVisual.Text
+            $script:AlertVisual.Text        # SHINY-DECK-TITLE-GLOW-CYCLE-V1: these title controls get recreated on redraw.
+        $script:DeckGlowTitle = $title
+        $title.Add_Paint({
+            param($sender,$e)
+            try {
+                if($sender.IsDisposed -or !$sender.Text){return}
+                $g=$e.Graphics
+                $oldSmoothing=$g.SmoothingMode
+                $g.SmoothingMode=[Drawing.Drawing2D.SmoothingMode]::AntiAlias
+                $accent=$script:DeckGlowColor
+                if($null -eq $accent){$accent=$script:AlertVisual.DefaultAccent}
+                # A soft, low-opacity halo, then a crisp near-white title.
+                # Draw on the Label's paint surface; no popup/window lifecycle involved.
+                $halo=[Drawing.SolidBrush]::new([Drawing.Color]::FromArgb(39,$accent.R,$accent.G,$accent.B))
+                $core=[Drawing.SolidBrush]::new($sender.ForeColor)
+                try {
+                    foreach($o in @(@(-2,0),@(2,0),@(0,-1),@(0,1))){
+                        $g.DrawString($sender.Text,$sender.Font,$halo,[single]([int]$o[0]),[single]([int]$o[1]))
+                    }
+                    $g.DrawString($sender.Text,$sender.Font,$core,[single]0,[single]0)
+                } finally { $halo.Dispose();$core.Dispose();$g.SmoothingMode=$oldSmoothing }
+            } catch { }
+        })
 
         $title.Font =
             New-Object Drawing.Font(
@@ -1023,7 +1292,7 @@ $form.Width =
             New-Object System.Windows.Forms.Label
 
         $count.Left =
-            112
+            145
 
         $count.Top =
             9
@@ -1051,10 +1320,11 @@ $form.Width =
 
 
         $dashboard =
-            New-Button 'Dashboard' 118
+            New-Button '' 32
+        Set-DeckIcon $dashboard ([string][char]0xE80F) 'Open dashboard'
 
         $dashboard.Left =
-            198
+            278
 
         $dashboard.Top =
             6
@@ -1072,7 +1342,8 @@ $form.Width =
 
 
         $plus =
-            New-Button '+' 28
+            New-Button '' 28
+        Set-DeckIcon $plus ([string][char]0xE8A3) 'Expand deck'
 
         $plus.Left =
             326
@@ -1184,6 +1455,21 @@ $form.Width =
         $bar.Controls.Add(
             $plus
         )
+
+        # SHINY-DECK-COMPACT-VOLUME-279-V1
+        # Remains visible in compact mode: critical muted-state indicator.
+        $compactVolume = New-Button '' 30
+        Set-DeckIcon $compactVolume ([string][char]0xE767) 'Router notification volume'
+        $compactVolume.Left = 237
+        $compactVolume.Top = 6
+        $compactVolume.Height = 28
+        Set-RoundedRegion $compactVolume 8
+        $compactVolume.Add_Click({ Toggle-DeckVolumeWindow })
+        $script:DeckVolumeButton = $compactVolume
+        $bar.Controls.Add($compactVolume)
+        Set-DeckHoverDescriptor $compactVolume 'Notification volume. Red means muted or 20% or lower.'
+        Read-DeckVolume
+        Update-DeckVolumeVisual
 
         $form.Controls.Add(
             $bar
@@ -1752,55 +2038,79 @@ function Set-RoundedRegion {
         New-Object Drawing.Region($path)
 }
 
-# SHINY-DECK-RESIZE-POLL-V4
+# SHINY-DECK-CORNER-RESIZE-V1
 $script:DeckResizeSession = $null
 $script:DeckResizePoller = New-Object System.Windows.Forms.Timer
-$script:DeckResizePoller.Interval = 90
+$script:DeckResizePoller.Interval = 24
 $script:DeckResizePoller.Add_Tick({
+    $session=$script:DeckResizeSession
+    if($null -eq $session){$script:DeckResizePoller.Stop();return}
     try {
-        $session = $script:DeckResizeSession
-        if($null -eq $session){
-            $script:DeckResizePoller.Stop()
-            return
-        }
-        $mouse = [System.Windows.Forms.Control]::MouseButtons
+        $mouse=[System.Windows.Forms.Control]::MouseButtons
         if(($mouse -band [System.Windows.Forms.MouseButtons]::Left) -eq [System.Windows.Forms.MouseButtons]::None){
             $script:DeckResizePoller.Stop()
-            $script:DeckResizeSession = $null
+            $script:DeckResizeSession=$null
+            $bounds=$form.Bounds
+            $script:DeckWidth=[int]$bounds.Width
+            $script:DeckHeight=[int]$bounds.Height
+            $script:DeckGrowthMode='auto'
+            $script:DeckGrowthArmedCount=[int]$script:NextId
+            # One full redraw AFTER dragging, rather than every 90ms during dragging.
+            $script:OverrideAnchorY=if($script:ExpansionDirection -eq 'up'){$bounds.Bottom-40}else{$bounds.Top}
+            Render-Expanded
+            $form.Left=[int]$bounds.Left
+            $form.Top=[int]$bounds.Top
+            Clamp-DeckPosition
             Save-DeckPosition
             return
         }
-        # Ignore layout mode changes during an active drag.
-        if($script:ExpansionDirection -ne $session.Direction){return}
-        $p = [System.Windows.Forms.Cursor]::Position
-        $dx = [int]$p.X - $session.X
-        $dy = [int]$p.Y - $session.Y
-        # When docked near the right edge, dragging LEFT expands the width.
-        $horizontalDelta = if($session.RightAnchored){-$dx}else{$dx}
-        $w = [int][Math]::Min(850,[Math]::Max(460,$session.Width + $horizontalDelta))
-        $signedY = if($session.Direction -eq 'up'){-1 * $dy}else{$dy}
-        $h = [int][Math]::Min(700,[Math]::Max(160,$session.Height + $signedY))
-        if($w -eq $script:DeckWidth -and $h -eq $form.Height){return}
-        $script:DeckWidth = $w
-        $script:DeckHeight = $h
-        # A manual resize remains in place until a new alert arrives.
-        # It never silently locks the deck into one-card mode.
-        $script:DeckGrowthMode = 'auto'
-        $script:DeckGrowthArmedCount = [int]$script:NextId
-        $script:OverrideAnchorY = [int]$session.Anchor
-        # Recreate cards, scrollbar and controls at the new dimensions.
-        Render-Expanded
-        if($session.RightAnchored){
-            $form.Left = [int]$session.Right - $form.Width
-            Clamp-DeckPosition
+        $p=[System.Windows.Forms.Cursor]::Position
+        $dx=[int]$p.X - $session.X
+        $dy=[int]$p.Y - $session.Y
+        $left=[int]$session.Left;$top=[int]$session.Top
+        $right=[int]$session.Right;$bottom=[int]$session.Bottom
+        if($session.Corner.EndsWith('L')){$left=[Math]::Min($right-460,[Math]::Max($right-850,$left+$dx))}
+        else{$right=[Math]::Min($left+850,[Math]::Max($left+460,$right+$dx))}
+        if($session.Corner.StartsWith('T')){$top=[Math]::Min($bottom-110,[Math]::Max($bottom-700,$top+$dy))}
+        else{$bottom=[Math]::Min($top+700,[Math]::Max($top+110,$bottom+$dy))}
+        $w=[int]($right-$left);$h=[int]($bottom-$top)
+        if($form.Left -ne $left -or $form.Top -ne $top -or $form.Width -ne $w -or $form.Height -ne $h){
+            $form.SetBounds($left,$top,$w,$h)
         }
     } catch {
-        # A resize must never interrupt notification polling.
         $script:DeckResizePoller.Stop()
-        $script:DeckResizeSession = $null
-        try {Save-DeckPosition} catch {}
+        $script:DeckResizeSession=$null
+        try {Render-Expanded;Save-DeckPosition} catch {}
     }
 })
+function Add-DeckCornerHandles {
+    # Only expanded view is resizable. Header drag surfaces remain untouched.
+    foreach($corner in @('TL','TR','BL','BR')){
+        $hit=New-Object System.Windows.Forms.Panel
+        $hit.Name='DeckResize'+$corner
+        $hit.Width=14;$hit.Height=14
+        $hit.Left=if($corner.EndsWith('L')){0}else{$form.ClientSize.Width-14}
+        $hit.Top=if($corner.StartsWith('T')){0}else{$form.ClientSize.Height-14}
+        $hit.BackColor=$script:AlertVisual.PageBackground
+        $hit.Cursor=if($corner -in @('TL','BR')){[System.Windows.Forms.Cursors]::SizeNWSE}else{[System.Windows.Forms.Cursors]::SizeNESW}
+        $hit.AccessibleName='Resize deck from '+$corner+' corner'
+        $hit.Tag=$corner
+        $hit.Add_MouseDown({
+            param($sender,$e)
+            if($e.Button -ne [System.Windows.Forms.MouseButtons]::Left){return}
+            if($null -ne $script:DeckResizeSession){return}
+            $p=[System.Windows.Forms.Cursor]::Position
+            $b=$form.Bounds
+            $script:DeckResizeSession=[pscustomobject]@{
+                Corner=[string]$sender.Tag;X=[int]$p.X;Y=[int]$p.Y
+                Left=[int]$b.Left;Top=[int]$b.Top;Right=[int]$b.Right;Bottom=[int]$b.Bottom
+            }
+            $script:DeckResizePoller.Start()
+        })
+        $form.Controls.Add($hit)
+        $hit.BringToFront()
+    }
+}
 function Render-Expanded {
     $form.SuspendLayout()
 
@@ -1933,16 +2243,38 @@ function Render-Expanded {
             10
 
         $title.Width =
-            78
+            111
 
         $title.Height =
             19
 
         $title.Text =
-            'ShinySlack'
+            ('ShinySlack ' + [string][char]0x2728)
 
         $title.ForeColor =
-            $script:AlertVisual.Text
+            $script:AlertVisual.Text        # SHINY-DECK-TITLE-GLOW-CYCLE-V1: these title controls get recreated on redraw.
+        $script:DeckGlowTitle = $title
+        $title.Add_Paint({
+            param($sender,$e)
+            try {
+                if($sender.IsDisposed -or !$sender.Text){return}
+                $g=$e.Graphics
+                $oldSmoothing=$g.SmoothingMode
+                $g.SmoothingMode=[Drawing.Drawing2D.SmoothingMode]::AntiAlias
+                $accent=$script:DeckGlowColor
+                if($null -eq $accent){$accent=$script:AlertVisual.DefaultAccent}
+                # A soft, low-opacity halo, then a crisp near-white title.
+                # Draw on the Label's paint surface; no popup/window lifecycle involved.
+                $halo=[Drawing.SolidBrush]::new([Drawing.Color]::FromArgb(39,$accent.R,$accent.G,$accent.B))
+                $core=[Drawing.SolidBrush]::new($sender.ForeColor)
+                try {
+                    foreach($o in @(@(-2,0),@(2,0),@(0,-1),@(0,1))){
+                        $g.DrawString($sender.Text,$sender.Font,$halo,[single]([int]$o[0]),[single]([int]$o[1]))
+                    }
+                    $g.DrawString($sender.Text,$sender.Font,$core,[single]0,[single]0)
+                } finally { $halo.Dispose();$core.Dispose();$g.SmoothingMode=$oldSmoothing }
+            } catch { }
+        })
 
         $title.Font =
             New-Object Drawing.Font(
@@ -1964,7 +2296,7 @@ function Render-Expanded {
         $count =
             New-Object System.Windows.Forms.Label
 
-        $count.Left = 112
+        $count.Left = 145
         $count.Top = 9
         $count.Width = 52
 
@@ -1987,8 +2319,9 @@ function Render-Expanded {
             )
 
 
-        $dashboard = New-Button 'Dashboard' 88
-        $dashboard.Left = ($script:DeckWidth - 291)
+        $dashboard = New-Button '' 30
+        Set-DeckIcon $dashboard ([string][char]0xE80F) 'Open dashboard'
+        $dashboard.Left = ($script:DeckWidth - 208)
 
         $dashboard.Top =
             6
@@ -2006,10 +2339,11 @@ function Render-Expanded {
 
 
         $minus =
-            New-Button '-' 28
+            New-Button '' 28
+        Set-DeckIcon $minus ([string][char]0xE921) 'Minimize deck'
 
         $minus.Left =
-            ($script:DeckWidth - 100)
+            ($script:DeckWidth - 76)
 
         $minus.Top =
             6
@@ -2035,10 +2369,11 @@ function Render-Expanded {
 
 
         $closeAll =
-            New-Button 'X' 28
+            New-Button '' 28
+        Set-DeckIcon $closeAll ([string][char]0xE8BB) 'Hide deck'
 
         $closeAll.Left =
-            ($script:DeckWidth - 68)
+            ($script:DeckWidth - 43)
 
         $closeAll.Top =
             6
@@ -2054,10 +2389,13 @@ function Render-Expanded {
         $closeAll.Add_Click({
             # X hides the deck but retains alerts and current layout.
             $script:DeckHiddenAt = Get-Date
+            Remove-Item -LiteralPath (Join-Path $root 'deck-visible.heartbeat') -Force -ErrorAction SilentlyContinue
+            Hide-DeckVolumeWindow
             $form.Hide()
         })        # SHINY-DECK-FINISH-RESIZE-DIRECTION-V1
-        $direction = New-Button $(if($script:ExpansionDirection -eq 'up'){'^'}else{'v'}) 28
-        $direction.Left = $script:DeckWidth - 132
+        $direction = New-Button '' 28
+        Set-DeckIcon $direction $(if($script:ExpansionDirection -eq 'up'){[string][char]0xE70E}else{[string][char]0xE70D}) 'Expansion direction'
+        $direction.Left = $script:DeckWidth - 109
         $direction.Top = 6
         $direction.Height = 28
         $direction.ForeColor = $script:AlertVisual.DefaultAccent
@@ -2068,36 +2406,7 @@ function Render-Expanded {
             Render-Expanded
             Save-DeckPosition
         })
-        $resizeGrip = New-Object System.Windows.Forms.Label
-        $resizeGrip.Left = $script:DeckWidth - 36
-        $resizeGrip.Top = 8
-        $resizeGrip.Width = 28
-        $resizeGrip.Height = 26
-        $resizeGrip.Text = '[+]'
-        $resizeGrip.TextAlign = 'MiddleCenter'
-        $resizeGrip.ForeColor = $script:AlertVisual.Muted
-        $resizeGrip.Font = New-Object Drawing.Font('Consolas',9,[Drawing.FontStyle]::Bold)
-        $resizeGrip.Cursor = [System.Windows.Forms.Cursors]::SizeNWSE
-        $resizeGrip.Tag = 'Drag to resize alert deck'
-        # SHINY-DECK-RESIZE-POLL-V4
-        # Cursor tracking survives redraws and works for expansion in both directions.
-        $resizeGrip.Add_MouseDown({
-            param($sender,$e)
-            if($e.Button -ne [System.Windows.Forms.MouseButtons]::Left){return}
-            if($null -ne $script:DeckResizeSession){return}
-            $p = [System.Windows.Forms.Cursor]::Position
-            $script:DeckResizeSession = [pscustomobject]@{
-                X=[int]$p.X; Y=[int]$p.Y
-                Width=[int]$script:DeckWidth; Height=[int]$form.Height
-                Anchor=[int]$(if($script:ExpansionDirection -eq 'up'){$form.Bottom - 40}else{$form.Top})
-                Direction=[string]$script:ExpansionDirection
-                Right=[int]$form.Right
-                RightAnchored=[bool](($form.Right + 20) -ge (Get-DeckWorkingArea).Right)
-            }
-            $script:DeckResizePoller.Start()
-        })
-
-
+        # Resizing is available from all four corners.
 
         $header.Controls.Add(
             $brandRail
@@ -2138,8 +2447,9 @@ function Render-Expanded {
             'locked' { '1L' }
             default  { 'A' }
         }
-        $compact = New-Button $compactLabel 28
-        $compact.Left = $script:DeckWidth - 198
+        $compact = New-Button '' 28
+        Set-DeckIcon $compact $(if($script:DeckGrowthMode -eq 'locked'){[string][char]0xE72E}elseif($script:DeckGrowthMode -eq 'once'){[string][char]0xE8A3}else{[string][char]0xE90C}) ('Deck growth: '+$script:DeckGrowthMode)
+        $compact.Left = $script:DeckWidth - 175
         $compact.Top = 6
         $compact.Height = 28
         $compact.ForeColor = $script:AlertVisual.DefaultAccent
@@ -2180,8 +2490,18 @@ function Render-Expanded {
             default  { 'AUTO: grow naturally with new alerts. Click to reset to one card once.' }
         }
         Set-DeckHoverDescriptor $compact $compactHelp
+        $volumeButton = New-Button '' 30
+        Set-DeckIcon $volumeButton ([string][char]0xE767) 'Router notification volume'
+        $volumeButton.Left = $script:DeckWidth - 142
+        $volumeButton.Top = 6
+        $volumeButton.Height = 28
+        Set-RoundedRegion $volumeButton 8
+        $volumeButton.Add_Click({Toggle-DeckVolumeWindow})
+        $script:DeckVolumeButton=$volumeButton
+        $header.Controls.Add($volumeButton)
+        Set-DeckHoverDescriptor $volumeButton 'Adjust Router volume. Red means muted or 20% or lower.'
         $header.Controls.Add($direction)
-        $header.Controls.Add($resizeGrip)
+        # No visible resize icon.
 
 
         foreach(
@@ -2539,7 +2859,7 @@ $x.Add_Click({
 
             $top += ($script:AlertVisual.CardHeight + $script:AlertVisual.CardGap)
         }
-                $autoHeight = [Math]::Max(110,[Math]::Min(($top + 52),610))
+                $autoHeight = [Math]::Max(110,[Math]::Min(($top + 52),700))
         $form.Height = if($script:DeckHeight -gt 0){
             [Math]::Min(700,[Math]::Max(110,[int]$script:DeckHeight))
         }else{ $autoHeight }
@@ -2918,13 +3238,16 @@ $x.Add_Click({
         Set-DeckHoverDescriptor $direction $(if($script:ExpansionDirection -eq 'up') {'Alerts expand upward. Click to switch downward.'} else {'Alerts expand downward. Click to switch upward.'})
         Set-DeckHoverDescriptor $minus 'Collapse the alert cards into the header'
         Set-DeckHoverDescriptor $closeAll 'Hide deck and keep alerts. Use Open Alert Deck to restore.'
-        Set-DeckHoverDescriptor $resizeGrip 'Drag to resize. Use 1 to reset to compact view.'
+        # Resize cursor appears at any corner.
 
 
 
 
         Position-Form
         Set-RoundedRegion $form 14
+        Add-DeckCornerHandles
+        Add-DeckInlineVolume -Left 0 -Top 0
+        if($script:DeckVolumeWindow -and $script:DeckVolumeWindow.Visible){Position-DeckVolumeWindow}
 
 
         if(!$form.Visible){
@@ -2946,6 +3269,43 @@ function Render {
     }
 }
 
+# SHINY-DECK-TITLE-GLOW-CYCLE-V1
+# Smoothly interpolate through the same palette used for alert accent rails.
+# The title itself remains white; its subtle halo breathes in the active color.
+$script:DeckGlowColor = $script:AlertVisual.DefaultAccent
+$script:DeckGlowStarted = [datetime]::UtcNow
+$script:DeckGlowTitle = $null
+$script:DeckGlowTimer = New-Object System.Windows.Forms.Timer
+$script:DeckGlowTimer.Interval = 90
+$script:DeckGlowTimer.Add_Tick({
+    try {
+        $title=$script:DeckGlowTitle
+        if($null -eq $title -or $title.IsDisposed -or !$form.Visible){return}
+        $colors=@($script:Palette)
+        if($colors.Count -lt 2){return}
+        $elapsed=([datetime]::UtcNow-$script:DeckGlowStarted).TotalSeconds
+        $phase=($elapsed / 2.8) % $colors.Count
+        $index=[int][Math]::Floor($phase)
+        $fraction=$phase-$index
+        $t=$fraction*$fraction*(3-2*$fraction)
+        $a=[Drawing.ColorTranslator]::FromHtml([string]$colors[$index])
+        $b=[Drawing.ColorTranslator]::FromHtml([string]$colors[(($index+1)%$colors.Count)])
+        $r=[int][Math]::Round($a.R+($b.R-$a.R)*$t)
+        $g=[int][Math]::Round($a.G+($b.G-$a.G)*$t)
+        $bval=[int][Math]::Round($a.B+($b.B-$a.B)*$t)
+        $next=[Drawing.Color]::FromArgb($r,$g,$bval)
+        $script:DeckGlowColor=$next
+        # Bright, color-tinted text plus layered translucent halo.
+        $pulse=0.35+0.15*[Math]::Sin($elapsed*1.6)
+        $title.ForeColor=[Drawing.Color]::FromArgb(
+            [int][Math]::Round(245*(1-$pulse)+$r*$pulse),
+            [int][Math]::Round(247*(1-$pulse)+$g*$pulse),
+            [int][Math]::Round(251*(1-$pulse)+$bval*$pulse)
+        )
+        $title.Invalidate()
+    } catch { }
+})
+$script:DeckGlowTimer.Start()
 function Add-Alert {
     param([string]$Line)
 
@@ -3132,6 +3492,27 @@ $timer.Add_Tick({
     }
 
     Read-Settings
+    # SHINY-MUTE-FAILSAFE-279-V1
+    # Visible deck pulse: Router may preserve intentional mute while visible.
+    try {
+        if($form.Visible -and !$script:DeckHiddenAt){
+            if(!$script:LastVolumePresence -or ((Get-Date)-$script:LastVolumePresence).TotalSeconds -ge 5){
+                [IO.File]::WriteAllText(
+                    (Join-Path $root 'deck-visible.heartbeat'),
+                    (Get-Date).ToString('o'),
+                    (New-Object Text.UTF8Encoding($false))
+                )
+                $script:LastVolumePresence=Get-Date
+            }
+        }else{
+            Remove-Item -LiteralPath (Join-Path $root 'deck-visible.heartbeat') -Force -ErrorAction SilentlyContinue
+        }
+    } catch {}
+    if(!$script:DeckVolumeDragging -and ((Get-Date)-$script:DeckVolumeReadAt).TotalMilliseconds -ge 1200){
+        $script:DeckVolumeReadAt=Get-Date
+        Read-DeckVolume
+        Update-DeckVolumeVisual
+    }
     Read-NewLines
     if($script:DeckHiddenAt){ return }
     # Tucked = countdown frozen.

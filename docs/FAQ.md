@@ -24,6 +24,10 @@ Git is guarded in three layers:
 
 This is not a sandbox against malware or another process already running as the same Windows user. A malicious same-user process could potentially inspect local files or process memory. ShinySlack's privacy controls are intended to prevent accidental persistence, network exposure, and Git/source-control leakage of Slack notification data.
 
+## What if I leave ShinySlack muted?
+
+Router mode shares volume between the dashboard and the floating deck. The speaker icon stays visible in compact mode and turns red if audio is muted or at or below 20%. If both the dashboard and deck are closed or inactive for approximately 90 seconds, ShinySlack restores audible volume to reduce missed notifications. This safeguard does not change NativeFallback mode. The dashboard displays the same behavior beneath the mute control.
+
 ## Does ShinySlack store message bodies?
 
 No. In v2.7.6, accessible notification text may be read transiently to calculate a SHA-256 deduplication fingerprint. Only the hash is retained briefly in memory for duplicate suppression. Raw message text is not persisted.

@@ -2548,7 +2548,17 @@ $listener=$null}}
                 }
                 continue
             }
+            # SHINY-MUTE-FAILSAFE-279-V1
+            # Only requests from an open dashboard update this timestamp.
             if($req.Method -eq 'GET' -and $req.Path -eq '/api/status'){
+                try {
+                    [IO.File]::WriteAllText(
+                        (Join-Path $script:Root 'dashboard-visible.heartbeat'),
+                        (Get-Date).ToString('o'),
+                        (New-Object Text.UTF8Encoding($false))
+                    )
+                } catch {}
+            }            if($req.Method -eq 'GET' -and $req.Path -eq '/api/status'){
 
                 Write-WebDiag 'Building status object.' $rid
 
@@ -2784,7 +2794,7 @@ $listener=$null}}
                     Write-WebDiag 'Checking GitHub for ShinySlack updates.' $rid
 
                     $versionPath = Join-Path $script:SourceDir 'version.txt'
-                    $currentVersion = 'v2.7.8'
+                    $currentVersion = 'v2.7.9'
 
                     if(Test-Path -LiteralPath $versionPath) {
                         $readVersion = (

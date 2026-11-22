@@ -180,7 +180,7 @@ section{padding:40px 0}
   <main class="hero">
     <div>
       <span class="eyebrow">SLACK ALERTS, YOUR WAY</span>
-      <p class="releaseNote" style="margin:8px 0 0">ShinySlack v2.7.8 - Test Slackbot button and guided installer updates</p>
+      <p class="releaseNote" style="margin:8px 0 0">ShinySlack v2.7.9 - glowing alert deck, volume safety, and refined controls</p>
       <h1>Your Slack.<br><span class="gradient">Your sound. Your alerts.</span></h1>
       <p class="lead">Custom sounds, per-channel routing, a persistent visual alert deck, native Slack deep links, and a live Activity feed - all from one local Windows app.</p>
 
@@ -228,7 +228,7 @@ section{padding:40px 0}
     <div class="features">
       <div class="feature"><b>Sound presets + custom MP3s</b><p>Use the mastered preset library or bring your own sound, with one universal ShinySlack volume.</p></div>
       <div class="feature"><b>Per-channel routing</b><p>Give high-priority Slack channels their own sound while everything else uses your default.</p></div>
-      <div class="feature"><b>Persistent visual alert deck</b><p>Resize or reposition alerts, switch upward/downward expansion, choose auto-growth or one-card lock, and reopen a hidden deck from the dashboard.</p></div>
+      <div class="feature"><b>Persistent visual alert deck</b><p>Resize from any corner, double-click the header to minimize or restore, adjust Router volume from expanded or compact mode, and see a red indicator when audio is muted or low. The ShinySlack title glows through alert accent colors.</p></div>
       <div class="feature"><b>Deep links + live Activity</b><p>Linked alerts can open the exact Slack channel, while Activity mirrors live notification events with low latency.</p></div>
     </div>
 
@@ -253,6 +253,7 @@ section{padding:40px 0}
       <details><summary>Does ShinySlack save my message text or sender names?</summary><p>No. In v2.7.6, accessible notification text is processed transiently for a short-lived SHA-256 deduplication fingerprint. Message bodies and sender names are not intentionally persisted. Local routing and event metadata are stored to provide the app's features.</p></details>
       <details><summary>Does ShinySlack upload my Slack data?</summary><p>There is no ShinySlack telemetry service and the dashboard is bound to local loopback. An update check can contact GitHub for release metadata, without uploading Slack message content or channel configuration.</p></details>
       <details><summary>Can an alert take me directly to a Slack channel?</summary><p>Yes, when that channel has a configured Slack deep link. ShinySlack opens the linked conversation using Slack's native URI handling.</p></details>
+      <details><summary>What happens if I mute ShinySlack and close its windows?</summary><p>In Router-owned audio mode, ShinySlack restores audible notifications after neither the dashboard nor the floating deck has been active for roughly 90 seconds. Muting remains intentional while either interface is active. The deck shows a red volume warning when muted or very low. Native Fallback mode is not changed by this safeguard.</p></details>
       <details><summary>Will alerts disappear automatically?</summary><p>The floating deck supports individual dismissal, hide/reopen without clearing cards, compact/locked/auto growth modes, up/down expansion, and a configurable auto-dismiss option. Activity separately displays recent live routing events.</p></details>
       <details><summary>Can ShinySlack recover notifications from while my PC was off?</summary><p>Not in v2.7.6. Offline recovery is reserved for v2.8 and will require its own privacy, consent, and retention design. Recovered channel activity would not necessarily be identical to notifications Slack would have shown.</p></details>
       <details><summary>Is ShinySlack affiliated with Slack?</summary><p>No. ShinySlack is an unofficial companion app. Use it only when permitted by your device and workplace policies.</p></details>
