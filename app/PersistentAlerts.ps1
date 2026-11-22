@@ -90,21 +90,157 @@ function Read-Settings {
     } catch {}
 }
 
-function Get-Accent {
-    param([string]$Key)
+# SHINY-EVENT-ACCENT-SEQUENCE-V1
+$script:LastAccentIndex =
+    -1
 
-    [uint64]$hash = 0
 
-    foreach($ch in $Key.ToCharArray()){
-        $hash = (($hash * 31) + [int][char]$ch) % 4294967296
+function Get-BaseAccentIndex {
+    param(
+        [string]$Key
+    )
+
+
+    [uint64]$hash =
+        0
+
+
+    foreach(
+        $ch in
+        $Key.ToCharArray()
+    ){
+
+        $hash =
+            (
+                ($hash * 31) +
+                [int][char]$ch
+            ) % 4294967296
     }
 
-    $hex = $script:Palette[
-        [int]($hash % $script:Palette.Count)
-    ]
 
-    [Drawing.ColorTranslator]::FromHtml($hex)
+    return [int](
+        $hash %
+        $script:Palette.Count
+    )
 }
+
+
+function Get-NextAccentIndex {
+    param(
+        [string]$Key,
+        [int]$PreviousIndex = -1
+    )
+
+
+    $index =
+        Get-BaseAccentIndex `
+            -Key $Key
+
+
+    if(
+        $script:Palette.Count -gt 1 -and
+        $index -eq $PreviousIndex
+    ){
+
+        $index =
+            (
+                $index +
+                1
+            ) %
+            $script:Palette.Count
+    }
+
+
+    return [int]$index
+}
+
+
+function Get-AccentColor {
+    param(
+        [int]$Index
+    )
+
+
+    if(
+        $Index -lt 0 -or
+        $Index -ge $script:Palette.Count
+    ){
+        $Index =
+            0
+    }
+
+
+    [Drawing.ColorTranslator]::FromHtml(
+        $script:Palette[$Index]
+    )
+}
+
+
+function Initialize-AccentSequence {
+
+    $script:LastAccentIndex =
+        -1
+
+
+    if(
+        !(
+            Test-Path `
+                -LiteralPath $log
+        )
+    ){
+        return
+    }
+
+
+    try {
+
+        foreach(
+            $line in
+            @(
+                Get-Content `
+                    -LiteralPath $log `
+                    -Tail 8001 `
+                    -Encoding UTF8 `
+                    -ErrorAction Stop
+            )
+        ){
+
+            if(
+                [string]::IsNullOrWhiteSpace(
+                    $line
+                )
+            ){
+                continue
+            }
+
+
+            $candidate =
+                $line.Trim()
+
+
+            if(
+                $candidate -notmatch
+                '^(?<stamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) (?<kind>ROUTED|DEFAULT|STACK_EXTRA|STACK_EXTRA_DEFAULT) channel=(?<channel>\S+) sound=(?<sound>.+?) backend=(?<backend>\S+)(?:\s+.*)?$'
+            ){
+                continue
+            }
+
+
+            $script:LastAccentIndex =
+                Get-NextAccentIndex `
+                    -Key $candidate `
+                    -PreviousIndex $script:LastAccentIndex
+        }
+    }
+    catch {
+
+        $script:LastAccentIndex =
+            -1
+    }
+}
+
+
+Initialize-AccentSequence
 
 function New-Button {
     param(
@@ -1503,7 +1639,8 @@ function Render-Expanded {
         foreach($a in $items){
 
             $accent =
-                Get-Accent $a.EventKey
+                Get-AccentColor `
+                    -Index ([int]$a.AccentIndex)
 
 
             $openSlack = {
@@ -2237,14 +2374,23 @@ function Add-Alert {
 
     $now = Get-Date
 
+    $accentIndex =
+        Get-NextAccentIndex `
+            -Key $Line `
+            -PreviousIndex $script:LastAccentIndex
+
+    $script:LastAccentIndex =
+        $accentIndex
+
     $obj = [pscustomobject]@{
-        Id       = $script:NextId
-        Time     = $stamp
-        AddedAt  = $now
-        Channel  = [string]$Matches.channel
-        Sound    = [string]$Matches.sound
-        EventKey = $Line
-        ExpireAt = $now.AddSeconds($script:AutoDismissSeconds)
+        Id          = $script:NextId
+        Time        = $stamp
+        AddedAt     = $now
+        Channel     = [string]$Matches.channel
+        Sound       = [string]$Matches.sound
+        EventKey    = $Line
+        AccentIndex = [int]$accentIndex
+        ExpireAt    = $now.AddSeconds($script:AutoDismissSeconds)
     }
 
     $script:NextId++

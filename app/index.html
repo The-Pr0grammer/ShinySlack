@@ -3325,120 +3325,160 @@ function renderChannelAudio(s){
     box.appendChild(row);
   });
 }
-const activityColors=[
-  '#55d8ff',
-  '#ff5cc8',
-  '#63e6a3',
-  '#ffc857',
-  '#a78bfa',
-  '#5ea1ff',
-  '#ff7b72',
-  '#b5e853',
-  '#ff8fab',
-  '#44d7c4'
-];
-
-function activityColorFor(n){
-  const key=
-    n.eventKey||
-    [
-      n.time||'',
-      n.source||'Slack',
-      n.sound||''
-    ].join('|');
-
-  let hash=0;
-
-  for(let i=0;i<key.length;i++){
-    hash=(
-      Math.imul(hash,31)+
-      key.charCodeAt(i)
-    )>>>0;
-  }
-
-  return activityColors[
-    hash%activityColors.length
-  ];
-}
-
+/* SHINY-ACTIVITY-LIVE-ROUTER-V2 */
 function renderActivity(items){
-  // SHINY-ACTIVITY-LATEST-FIRST-V1
-  // Backend history is chronological; dashboard wants newest first.
-  items=[...(items||[])].reverse();
 
-  const box=$('activityFeed');
+  const box=
+    $('activityFeed');
 
-  if(!box)return;
-
-  box.innerHTML='';
-
-  if(!items||!items.length){
-    const empty=document.createElement('div');
-    empty.className='activityEmpty';
-    empty.textContent='No Slack notifications yet.';
-    box.appendChild(empty);
+  if(!box){
     return;
   }
 
-  // Backend returns newest-first.
-  // Present the latest 30 chronologically.
-  const ordered=[...items].reverse();
+  box.innerHTML='';
+
+  const ordered=
+    [...(items||[])];
+
+  if(!ordered.length){
+
+    const empty=
+      document.createElement('div');
+
+    empty.className=
+      'activityEmpty';
+
+    empty.textContent=
+      'No Slack notifications yet.';
+
+    box.appendChild(
+      empty
+    );
+
+    return;
+  }
+
 
   ordered.forEach(n=>{
-    const card=document.createElement('div');
-    card.className='activityItem';
 
-    const accent=activityColorFor(n);
+    const card=
+      document.createElement('div');
+
+    card.className=
+      'activityItem';
+
+
+    const accent=
+      (
+        typeof n.accent==='string' &&
+        /^#[0-9a-f]{6}$/i.test(n.accent)
+      )
+        ? n.accent
+        : '#55d8ff';
+
 
     card.style.setProperty(
       '--activityAccent',
       accent
     );
 
-    const top=document.createElement('div');
-    top.className='activityTop';
 
-    const source=document.createElement('span');
-    source.className='activitySource';
-    source.textContent=n.source||'Slack';
-    source.style.color=accent;
+    const top=
+      document.createElement('div');
 
-    const time=document.createElement('span');
-    time.className='activityTime';
-    time.style.color=accent;
+    top.className=
+      'activityTop';
+
+
+    const source=
+      document.createElement('span');
+
+    source.className=
+      'activitySource';
+
+    source.textContent=
+      n.source||
+      'Slack';
+
+    source.style.color=
+      accent;
+
+
+    const time=
+      document.createElement('span');
+
+    time.className=
+      'activityTime';
+
+    time.style.color=
+      accent;
+
 
     try{
+
       time.textContent=
-        new Date(n.time).toLocaleTimeString([],{
-          hour:'numeric',
-          minute:'2-digit'
-        });
+        new Date(
+          n.time
+        ).toLocaleTimeString(
+          [],
+          {
+            hour:'numeric',
+            minute:'2-digit'
+          }
+        );
+
     }catch{
-      time.textContent='';
+
+      time.textContent=
+        '';
     }
 
-    top.appendChild(source);
-    top.appendChild(time);
-    card.appendChild(top);
+
+    top.appendChild(
+      source
+    );
+
+    top.appendChild(
+      time
+    );
+
+    card.appendChild(
+      top
+    );
+
 
     if(n.sound){
-      const meta=document.createElement('div');
-      meta.className='activityMeta';
-      meta.textContent='Sound: '+n.sound;
-      card.appendChild(meta);
+
+      const meta=
+        document.createElement('div');
+
+      meta.className=
+        'activityMeta';
+
+      meta.textContent=
+        'Sound: '+
+        n.sound;
+
+      card.appendChild(
+        meta
+      );
     }
 
-    box.appendChild(card);
+
+    box.appendChild(
+      card
+    );
   });
 
-  // Chronological feed opens at the newest event.
-  box.scrollTop=box.scrollHeight;
 
-  // SHINY-ACTIVITY-PIN-TOP-V1
-  // Newest item is first; never preserve an old bottom scroll position.
-  requestAnimationFrame(()=>{
-    box.scrollTop=0;
-  });}
+  // Backend is newest-first.
+  // Keep the latest event pinned at the top.
+  requestAnimationFrame(
+    ()=>{
+      box.scrollTop=0;
+    }
+  );
+}
 
 function renderSoundOwnership(o){
   o=o||{};

@@ -639,6 +639,266 @@ function Protect-ShinySecret {
 }
 
 
+# SHINY-LIVE-ACTIVITY-FROM-ROUTER-V1
+function Get-LiveRouterActivityItems {
+    param(
+        [int]$Limit = 30
+    )
+
+
+    $routerLog =
+        Join-Path `
+            $script:Root `
+            'channel-router.log'
+
+
+    if(
+        !(
+            Test-Path `
+                -LiteralPath $routerLog
+        )
+    ){
+        return @()
+    }
+
+
+    $palette =
+        @(
+            '#55d8ff',
+            '#ff5cc8',
+            '#63e6a3',
+            '#ffc857',
+            '#a78bfa',
+            '#5ea1ff',
+            '#ff7b72',
+            '#b5e853',
+            '#ff8fab',
+            '#44d7c4'
+        )
+
+
+    function Get-LiveActivityAccentIndex {
+        param(
+            [string]$Key,
+            [int]$PreviousIndex = -1
+        )
+
+
+        [uint64]$hash =
+            0
+
+
+        foreach(
+            $ch in
+            $Key.ToCharArray()
+        ){
+
+            $hash =
+                (
+                    ($hash * 31) +
+                    [int][char]$ch
+                ) % 4294967296
+        }
+
+
+        $index =
+            [int](
+                $hash %
+                $palette.Count
+            )
+
+
+        if(
+            $palette.Count -gt 1 -and
+            $index -eq $PreviousIndex
+        ){
+
+            $index =
+                (
+                    $index +
+                    1
+                ) %
+                $palette.Count
+        }
+
+
+        return [int]$index
+    }
+
+
+    try {
+
+        $activity =
+            @()
+
+
+        $previousAccentIndex =
+            -1
+
+
+        foreach(
+            $line in
+            @(
+                Get-Content `
+                    -LiteralPath $routerLog `
+                    -Tail 8001 `
+                    -Encoding UTF8 `
+                    -ErrorAction Stop
+            )
+        ){
+
+            if(
+                [string]::IsNullOrWhiteSpace(
+                    $line
+                )
+            ){
+                continue
+            }
+
+
+            $candidate =
+                $line.Trim()
+
+
+            if(
+                $candidate -notmatch
+                '^(?<stamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) (?<kind>ROUTED|DEFAULT|STACK_EXTRA|STACK_EXTRA_DEFAULT) channel=(?<channel>\S+) sound=(?<sound>.+?) backend=(?<backend>\S+)(?:\s+.*)?$'
+            ){
+                continue
+            }
+
+
+            $stamp =
+                [string]$Matches['stamp']
+
+            $kind =
+                [string]$Matches['kind']
+
+            $channel =
+                [string]$Matches['channel']
+
+            $sound =
+                [string]$Matches['sound']
+
+            $backend =
+                [string]$Matches['backend']
+
+
+            try {
+
+                $when =
+                    [datetime]::ParseExact(
+                        $stamp,
+                        'yyyy-MM-dd HH:mm:ss.fff',
+                        [Globalization.CultureInfo]::InvariantCulture
+                    ).ToString('o')
+            }
+            catch {
+
+                $when =
+                    (Get-Date).ToString('o')
+            }
+
+
+            $source =
+                $channel
+
+
+            if(
+                [string]::IsNullOrWhiteSpace(
+                    $source
+                ) -or
+                $source -eq 'unknown'
+            ){
+
+                $source =
+                    'Slack'
+            }
+            elseif(
+                !$source.StartsWith(
+                    '#'
+                )
+            ){
+
+                $source =
+                    '#' +
+                    $source
+            }
+
+
+            $description =
+                switch($kind){
+
+                    'ROUTED' {
+                        'Routed notification'
+                    }
+
+                    'DEFAULT' {
+                        'Default notification'
+                    }
+
+                    'STACK_EXTRA' {
+                        'Stacked routed notification'
+                    }
+
+                    'STACK_EXTRA_DEFAULT' {
+                        'Stacked default notification'
+                    }
+
+                    default {
+                        'Notification'
+                    }
+                }
+
+
+            $accentIndex =
+                Get-LiveActivityAccentIndex `
+                    -Key $candidate `
+                    -PreviousIndex $previousAccentIndex
+
+
+            $previousAccentIndex =
+                $accentIndex
+
+
+            $activity +=
+                [pscustomobject]@{
+                    time =
+                        $when
+
+                    source =
+                        $source
+
+                    message =
+                        $description
+
+                    sound =
+                        $sound
+
+                    backend =
+                        $backend
+
+                    eventKey =
+                        $candidate
+
+                    accent =
+                        [string]$palette[$accentIndex]
+                }
+        }
+
+
+        return @(
+            $activity |
+            Sort-Object time -Descending |
+            Select-Object -First $Limit
+        )
+    }
+    catch {
+
+        return @()
+    }
+}
+
 function Get-NotificationLedgerItems {
     param(
         [int]$Limit = 30
@@ -992,11 +1252,12 @@ function Get-StatusObject {
         if($diagParts.Count){ $diag=$diagParts -join "`n`n"; if($log){$log="WATCHER DIAGNOSTICS:`n$diag`n`n$log"}else{$log="WATCHER DIAGNOSTICS:`n$diag"} }
     }
 
-    # Activity now comes from the durable notification ledger.
-    # Live router events + recovered Slack history share this file.
+    # Live Activity comes directly from the privacy-safe Router event log.
+    # v2.8 recovered history will MERGE with this source later; it does not
+    # replace the live feed.
     $notifications =
         @(
-            Get-NotificationLedgerItems `
+            Get-LiveRouterActivityItems `
                 -Limit 30
         )
     Write-WebDiag 'STATUS 7/8: checking ffmpeg.' $RequestId
@@ -1996,6 +2257,7 @@ $listener=$null}}
                             sound    = [string]$n.sound
                             backend  = [string]$n.backend
                             eventKey = [string]$n.eventKey
+                            accent   = [string]$n.accent
                         }
                 }
 
