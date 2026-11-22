@@ -311,19 +311,26 @@ function Read-Request {
     # must be discarded very quickly.
     # --------------------------------------------------------
 
-    $stream.ReadTimeout = 150
+    # SHINY-SPECULATIVE-SOCKET-SAFE-V2
+    #
+    # Firefox/Chromium may pre-open localhost sockets and send no HTTP
+    # bytes. That is normal. Since this server is single-threaded, drop
+    # those sockets quickly, but never turn them into a JSON 500 page.
+    $stream.ReadTimeout = 250
 
     try {
         $firstByte = $stream.ReadByte()
     }
+    catch [System.IO.IOException] {
+        return $null
+    }
     catch {
-        throw 'Client connected but sent no request bytes within 150 ms.'
+        return $null
     }
 
     if($firstByte -lt 0) {
-        throw 'Client disconnected before sending an HTTP request.'
+        return $null
     }
-
 
     # Real request detected. Normal timeout from here forward.
     $stream.ReadTimeout = 3000
@@ -1447,7 +1454,26 @@ function Persist-WebFiles {
         $lnk = Join-Path $desktop 'ShinySlack.lnk'
         $ws = New-Object -ComObject WScript.Shell
         $s = $ws.CreateShortcut($lnk)
-        $s.TargetPath = Join-Path $script:Root 'Start-ShinySlack.cmd'
+        $psExe =
+            Join-Path `
+                $env:SystemRoot `
+                'System32\WindowsPowerShell\v1.0\powershell.exe'
+
+        $launchScript =
+            Join-Path `
+                $script:Root `
+                'Start-ShinySlack.ps1'
+
+        $s.TargetPath =
+            $psExe
+
+        $s.Arguments =
+            (
+                '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass ' +
+                '-File "' +
+                $launchScript +
+                '" -QuietLaunch'
+            )
         $s.WorkingDirectory = $script:Root
 
         $icon = Join-Path $script:Root 'ShinySlack.ico'
@@ -2357,6 +2383,10 @@ $listener=$null}}
             $client.ReceiveTimeout = 3000
             $client.SendTimeout = 5000
             $req=Read-Request $client $rid
+
+            if($null -eq $req){
+                continue
+            }
             if($req.Path -ne '/api/activity'){
                 Write-WebDiag "Dispatching $($req.Method) $($req.Path)" $rid
             }

@@ -37,13 +37,13 @@ RestartApplications=no
 Source: "..\app\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{autoprograms}\ShinySlack"; Filename: "{app}\{#MyAppExe}"; WorkingDir: "{app}"; IconFilename: "{app}\ShinySlack.ico"; Comment: "Open ShinySlack dashboard and notification alerts"
-Name: "{autodesktop}\ShinySlack"; Filename: "{app}\{#MyAppExe}"; WorkingDir: "{app}"; IconFilename: "{app}\ShinySlack.ico"; Tasks: desktopicon; Comment: "Open ShinySlack dashboard and notification alerts"
+Name: "{autoprograms}\ShinySlack"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-ShinySlack.ps1"" -QuietLaunch"; WorkingDir: "{app}"; IconFilename: "{app}\ShinySlack.ico"; Comment: "Open ShinySlack dashboard and notification alerts"
+Name: "{autodesktop}\ShinySlack"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-ShinySlack.ps1"" -QuietLaunch"; WorkingDir: "{app}"; IconFilename: "{app}\ShinySlack.ico"; Tasks: desktopicon; Comment: "Open ShinySlack dashboard and notification alerts"
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: checkedonce
 
 [Run]
-Filename: "{app}\{#MyAppExe}"; WorkingDir: "{app}"; Description: "Open ShinySlack now"; Flags: postinstall nowait skipifsilent shellexec
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-ShinySlack.ps1"" -QuietLaunch"; WorkingDir: "{app}"; Description: "Open ShinySlack now"; Flags: postinstall nowait skipifsilent runhidden
 [UninstallRun]
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\Uninstall-ShinySlack.ps1"" -KeepFiles"; Flags: runhidden waituntilterminated; RunOnceId: "ShinySlackCleanup"
 

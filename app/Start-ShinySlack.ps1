@@ -1,3 +1,8 @@
+param(
+    [switch]$QuietLaunch
+)
+
+# SHINY-GUI-LAUNCH-V2
 $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
 
@@ -212,13 +217,62 @@ try {
     throw ("ShinySlack could not start.`n`n" + ($details -join "`n`n") + "`n`nLogs:`n$traceLog`n$outLog`n$errLog")
 }
 catch {
+
+    $message =
+        $_.Exception.Message
+
+    $launcherErrorLog =
+        Join-Path `
+            $stateRoot `
+            'launcher-error.log'
+
+    try {
+        @(
+            ('time=' + (Get-Date).ToString('o')),
+            ('message=' + $message),
+            '',
+            $_.ScriptStackTrace
+        ) |
+        Set-Content `
+            -LiteralPath $launcherErrorLog `
+            -Encoding UTF8
+    }
+    catch {}
+
+
+    if($QuietLaunch){
+
+        try {
+            $shell =
+                New-Object `
+                    -ComObject WScript.Shell
+
+            $null =
+                $shell.Popup(
+                    (
+                        "ShinySlack could not start.`r`n`r`n" +
+                        $message +
+                        "`r`n`r`nDiagnostics:`r`n" +
+                        $launcherErrorLog
+                    ),
+                    0,
+                    'ShinySlack',
+                    16
+                )
+        }
+        catch {}
+
+        exit 1
+    }
+
+
     Write-Host ''
     Write-Host 'SHINYSLACK STARTUP ERROR' -ForegroundColor Red
     Write-Host '------------------------' -ForegroundColor DarkRed
-    Write-Host $_.Exception.Message -ForegroundColor Yellow
+    Write-Host $message -ForegroundColor Yellow
     Write-Host ''
+    Write-Host ("Diagnostics: " + $launcherErrorLog) -ForegroundColor DarkGray
     Write-Host 'Press Enter to close this window.' -ForegroundColor Gray
     [void](Read-Host)
     exit 1
 }
-

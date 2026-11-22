@@ -117,12 +117,31 @@ if(Test-Path -LiteralPath $presetSource){
 try { Get-ChildItem -LiteralPath $root -File -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue } catch {}
 
 try {
-    if (Test-Path (Join-Path $root 'Start-ShinySlack.cmd')) {
+    if (Test-Path (Join-Path $root 'Start-ShinySlack.ps1')) {
         $desktop = [Environment]::GetFolderPath('Desktop')
         $shortcutPath = Join-Path $desktop 'ShinySlack.lnk'
         $ws = New-Object -ComObject WScript.Shell
         $shortcut = $ws.CreateShortcut($shortcutPath)
-        $shortcut.TargetPath = Join-Path $root 'Start-ShinySlack.cmd'
+        $launcherPs =
+            Join-Path `
+                $env:SystemRoot `
+                'System32\WindowsPowerShell\v1.0\powershell.exe'
+
+        $launcherScript =
+            Join-Path `
+                $root `
+                'Start-ShinySlack.ps1'
+
+        $shortcut.TargetPath =
+            $launcherPs
+
+        $shortcut.Arguments =
+            (
+                '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass ' +
+                '-File "' +
+                $launcherScript +
+                '" -QuietLaunch'
+            )
         $shortcut.WorkingDirectory = $root
         $iconPath = Join-Path $root 'ShinySlack.ico'
         if(Test-Path -LiteralPath $iconPath){

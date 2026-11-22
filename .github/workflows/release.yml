@@ -88,7 +88,9 @@ jobs:
             'Name: "{autoprograms}\ShinySlack"',
             'Name: "{autodesktop}\ShinySlack"',
             'IconFilename: "{app}\ShinySlack.ico"',
-            'Description: "Open ShinySlack now"'
+            'Description: "Open ShinySlack now"',
+            '-QuietLaunch',
+            'Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"'
           )) {
             if(!$installer.Contains($needle)) {
               throw "Installer contract missing: $needle"
@@ -99,7 +101,9 @@ jobs:
           foreach($needle in @(
             'Ensure-ShinySlackRouter',
             'Ensure-ShinySlackVisualAlerts',
-            'Open-ShinySlackUrl'
+            'Open-ShinySlackUrl',
+            'QuietLaunch',
+            'launcher-error.log'
           )) {
             if(!$launcher.Contains($needle)) {
               throw "Launcher contract missing: $needle"

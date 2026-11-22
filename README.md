@@ -92,7 +92,7 @@ The installer:
 - launches ShinySlack after installation unless you uncheck that option; and
 - leaves background notification routing available after the dashboard tab is closed.
 
-The installer and shortcuts all use `Start-ShinySlack.cmd` / `Start-ShinySlack.ps1` as the supported user-facing launch path.
+The installed Desktop/Start shortcuts launch `Start-ShinySlack.ps1` in a hidden PowerShell window. `Start-ShinySlack.cmd` remains available as the visible diagnostic launcher for technicians when startup troubleshooting is needed.
 
 `Install-ShinySlack.ps1` remains an internal/manual maintenance path for development and legacy cache work. Fresh users should use `ShinySlackSetup.exe`.
 
