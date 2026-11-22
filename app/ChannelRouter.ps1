@@ -692,6 +692,18 @@ function Test-SlackNotificationElement {
     }
 
 
+    # V17 ownership rule:
+    #
+    # 1. The accessibility element must belong to slack.exe.
+    # 2. Prefer a positive identification of Slack's dedicated
+    #    notification helper surface when UIA exposes it.
+    # 3. If Electron hides that helper title/handle, accept only
+    #    the exact accessibility classes the proven V3 detector
+    #    used for Slack built-in notification cards.
+    #
+    # This removes ALL screen-position assumptions while keeping
+    # Windows Notification Center out of scope.
+
     if(
         !(
             Test-SlackProcessElement `
@@ -700,6 +712,18 @@ function Test-SlackNotificationElement {
     ){
         return $false
     }
+
+
+    $elementClass =
+        ''
+
+
+    try {
+
+        $elementClass =
+            [string]$Element.Current.ClassName
+    }
+    catch {}
 
 
     $node =
@@ -783,7 +807,22 @@ function Test-SlackNotificationElement {
     }
 
 
-    return $false
+    # Electron does not consistently expose the notification helper
+    # window title to UIAutomation. These three class names are the
+    # structural fingerprint already proven by the original Router.
+    #
+    # Message is still filtered later by proximity to an accepted
+    # OpenChannel, so ordinary message content cannot independently
+    # create a notification event.
+
+    return (
+        $elementClass -in
+        @(
+            'OpenTeam',
+            'OpenChannel',
+            'Message'
+        )
+    )
 }
 
 function Get-ToastTeams {
