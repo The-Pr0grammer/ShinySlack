@@ -61,7 +61,7 @@ Offline notification-history recovery while the PC is asleep/off is still under 
 
 ## Privacy
 
-The privacy baseline established in v2.7.5 remains enforced in v2.7.6:
+The privacy baseline established in v2.7.5 and hardened in v2.7.6 continues to be enforced:
 
 - The dashboard server binds to Windows loopback only.
 - Dashboard API authentication uses a cryptographically generated per-process token.
