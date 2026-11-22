@@ -527,6 +527,87 @@ function Enable-DeckDrag {
 }
 
 
+# SHINY-DECK-OPEN-DASHBOARD-V1
+function Open-ShinySlackDashboard {
+
+    try {
+
+        $portPath =
+            Join-Path `
+                $root `
+                'web.port'
+
+
+        if(
+            Test-Path `
+                -LiteralPath $portPath
+        ){
+
+            $raw =
+                (
+                    Get-Content `
+                        -LiteralPath $portPath `
+                        -Raw `
+                        -ErrorAction SilentlyContinue
+                ).Trim()
+
+
+            $port =
+                0
+
+
+            if(
+                [int]::TryParse(
+                    $raw,
+                    [ref]$port
+                ) -and
+                $port -gt 0
+            ){
+
+                Start-Process (
+                    'http://127.0.0.1:{0}/' -f
+                    $port
+                )
+
+                return
+            }
+        }
+    }
+    catch {}
+
+
+    try {
+
+        $launcher =
+            Join-Path `
+                $root `
+                'Start-ShinySlack.ps1'
+
+
+        if(
+            Test-Path `
+                -LiteralPath $launcher
+        ){
+
+            $ps =
+                Join-Path `
+                    $env:SystemRoot `
+                    'System32\WindowsPowerShell\v1.0\powershell.exe'
+
+
+            Start-Process `
+                -FilePath $ps `
+                -ArgumentList @(
+                    '-NoProfile',
+                    '-ExecutionPolicy','Bypass',
+                    '-File',$launcher
+                ) |
+            Out-Null
+        }
+    }
+    catch {}
+}
+
 function Render-Tucked {
 
     $form.SuspendLayout()
@@ -540,7 +621,8 @@ function Render-Tucked {
         $form.Controls.Clear()
         $form.AutoScroll = $false
 
-        $form.Width = 248
+        # SHINY-DECK-HEADER-LAYOUT-V2
+        $form.Width = 350
         $form.Height = 38
 
 
@@ -635,16 +717,17 @@ function Render-Tucked {
             New-Object System.Windows.Forms.Label
 
         $count.Left = 112
-        $count.Top = 10
-        $count.Width = 84
-        $count.Height = 17
+        $count.Top = 8
+        $count.Width = 72
+        $count.Height = 20
         $count.Text = $countText
+        $count.TextAlign = 'MiddleCenter'
 
         $count.ForeColor =
             [Drawing.Color]::FromArgb(
-                111,
-                129,
-                151
+                126,
+                140,
+                158
             )
 
         $count.Font =
@@ -654,10 +737,45 @@ function Render-Tucked {
             )
 
 
+        $dashboard =
+            New-Button 'Dashboard' 112
+
+        $dashboard.Left = 192
+        $dashboard.Top = 6
+        $dashboard.Height = 26
+
+        $dashboard.BackColor =
+            [Drawing.Color]::FromArgb(
+                20,
+                27,
+                38
+            )
+
+        $dashboard.ForeColor =
+            [Drawing.Color]::FromArgb(
+                214,
+                224,
+                236
+            )
+
+        $dashboard.Font =
+            New-Object Drawing.Font(
+                'Segoe UI',
+                8,
+                [Drawing.FontStyle]::Bold
+            )
+
+        Set-RoundedRegion $dashboard 8
+
+        $dashboard.Add_Click({
+            Open-ShinySlackDashboard
+        })
+
+
         $plus =
             New-Button '+' 28
 
-        $plus.Left = 214
+        $plus.Left = 316
         $plus.Top = 6
         $plus.Height = 26
 
@@ -745,6 +863,7 @@ function Render-Tucked {
         $bar.Controls.Add($grip)
         $bar.Controls.Add($title)
         $bar.Controls.Add($count)
+        $bar.Controls.Add($dashboard)
         $bar.Controls.Add($plus)
 
         $form.Controls.Add($bar)
@@ -1379,7 +1498,7 @@ function Render-Expanded {
 
         $title.Left = 32
         $title.Top = 7
-        $title.Width = 98
+        $title.Width = 80
         $title.Height = 18
         $title.Text = 'ShinySlack'
 
@@ -1411,16 +1530,17 @@ function Render-Expanded {
             New-Object System.Windows.Forms.Label
 
         $count.Left = 118
-        $count.Top = 8
-        $count.Width = 100
-        $count.Height = 17
+        $count.Top = 6
+        $count.Width = 78
+        $count.Height = 21
         $count.Text = $countText
+        $count.TextAlign = 'MiddleCenter'
 
         $count.ForeColor =
             [Drawing.Color]::FromArgb(
-                115,
-                131,
-                151
+                126,
+                140,
+                158
             )
 
         $count.Font =
@@ -1429,6 +1549,41 @@ function Render-Expanded {
                 8
             )
 
+
+        # SHINY-DECK-DASHBOARD-BUTTON-V1
+        $dashboard =
+            New-Button 'Dashboard' 112
+
+        $dashboard.Left = 214
+        $dashboard.Top = 4
+        $dashboard.Height = 24
+
+        $dashboard.BackColor =
+            [Drawing.Color]::FromArgb(
+                20,
+                27,
+                38
+            )
+
+        $dashboard.ForeColor =
+            [Drawing.Color]::FromArgb(
+                214,
+                224,
+                236
+            )
+
+        $dashboard.Font =
+            New-Object Drawing.Font(
+                'Segoe UI',
+                8,
+                [Drawing.FontStyle]::Bold
+            )
+
+        Set-RoundedRegion $dashboard 8
+
+        $dashboard.Add_Click({
+            Open-ShinySlackDashboard
+        })
 
         # -----------------------------------------------------
         # GLOBAL MINUS = TUCK ALL
@@ -1516,6 +1671,7 @@ function Render-Expanded {
         $header.Controls.Add($dragGrip)
         $header.Controls.Add($title)
         $header.Controls.Add($count)
+        $header.Controls.Add($dashboard)
         $header.Controls.Add($minus)
         $header.Controls.Add($closeAll)
 
@@ -1665,9 +1821,9 @@ function Render-Expanded {
 
             $shell.BackColor =
                 [Drawing.Color]::FromArgb(
-                    31,
-                    40,
-                    53
+                    37,
+                    44,
+                    58
                 )
 
             $shell.Tag = $a.Channel
@@ -1694,8 +1850,8 @@ function Render-Expanded {
             $card.BackColor =
                 [Drawing.Color]::FromArgb(
                     8,
-                    13,
-                    20
+                    11,
+                    17
                 )
 
             $card.Tag = $a.Channel
@@ -1727,7 +1883,7 @@ function Render-Expanded {
 
             $rail.Add_Click($openSlack)
             # -------------------------------------------------
-            # CHANNEL — PAINTED GLOW TEXT
+            # CHANNEL - crisp Activity-style accent text
             # -------------------------------------------------
 
             $channelText =
@@ -1750,7 +1906,6 @@ function Render-Expanded {
                     [Drawing.Text.TextRenderingHint]::AntiAlias
 
 
-                # Slightly shrink unusually long channel names.
                 $fontSize =
                     if($channelText.Length -gt 23){
                         10.5
@@ -1787,25 +1942,12 @@ function Render-Expanded {
                     [Drawing.StringFormatFlags]::NoWrap
 
 
-                # Space available before timestamp.
                 $rect =
                     New-Object Drawing.RectangleF(
                         15,
                         0,
                         240,
                         64
-                    )
-
-
-                # Soft glow — intentionally restrained.
-                $glow =
-                    New-Object Drawing.SolidBrush(
-                        [Drawing.Color]::FromArgb(
-                            52,
-                            $channelAccent.R,
-                            $channelAccent.G,
-                            $channelAccent.B
-                        )
                     )
 
 
@@ -1817,37 +1959,7 @@ function Render-Expanded {
 
                 try {
 
-                    # ~CSS text-shadow: 0 0 6px currentColor
-                    foreach($offset in @(
-                        @(-2,0),
-                        @( 2,0),
-                        @(0,-2),
-                        @(0, 2),
-                        @(-1,-1),
-                        @( 1,-1),
-                        @(-1, 1),
-                        @( 1, 1)
-                    )){
-
-                        $glowRect =
-                            New-Object Drawing.RectangleF(
-                                ($rect.X + $offset[0]),
-                                ($rect.Y + $offset[1]),
-                                $rect.Width,
-                                $rect.Height
-                            )
-
-                        $g.DrawString(
-                            $channelText,
-                            $font,
-                            $glow,
-                            $glowRect,
-                            $format
-                        )
-                    }
-
-
-                    # Crisp foreground text.
+                    # Match Activity: crisp accent text, no neon halo.
                     $g.DrawString(
                         $channelText,
                         $font,
@@ -1860,7 +1972,6 @@ function Render-Expanded {
 
                     $font.Dispose()
                     $format.Dispose()
-                    $glow.Dispose()
                     $main.Dispose()
                 }
 
@@ -1873,8 +1984,7 @@ function Render-Expanded {
 
 
 
-            # -------------------------------------------------
-            # TIME
+            # -------------------------------------------------            # TIME
             # -------------------------------------------------
 
             $time =
