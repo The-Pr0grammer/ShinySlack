@@ -68,7 +68,7 @@ function Copy-ShinyFileIfNeeded {
     Copy-Item -LiteralPath $Source -Destination $Destination -Force
 }
 
-foreach ($name in @('ShinySlack.Common.ps1','Repair-ShinySlack.ps1','Watch-ShinySlack.ps1','Set-ShinySlackSound.ps1','Uninstall-ShinySlack.ps1','ShinySlack-Operation.ps1','ChannelRouter.ps1','Start-ChannelRouter.ps1','Set-ChannelSound.ps1','Set-DefaultSound.ps1','silent-slack.mp3')) {
+foreach ($name in @('ShinySlack.Common.ps1','Repair-ShinySlack.ps1','Watch-ShinySlack.ps1','Set-ShinySlackSound.ps1','Uninstall-ShinySlack.ps1','ShinySlack-Operation.ps1','ChannelRouter.ps1','Start-ChannelRouter.ps1','PersistentAlerts.ps1','Set-ChannelSound.ps1','Set-DefaultSound.ps1','silent-slack.mp3')) {
     $src = Join-Path $PSScriptRoot $name
     Copy-ShinyFileIfNeeded -Source $src -Destination (Join-Path $root $name)
 }
@@ -176,6 +176,46 @@ if(Test-Path -LiteralPath $routerLauncher) {
 }
 
 Write-ShinyLog "Installed channel-router startup entry: $routerStartupCmd"
+# SHINY-V17-PERSISTENT-ALERTS-INSTALL-V1
+$alertsStartupCmd =
+    Join-Path `
+        $startupDir `
+        'ShinySlack-PersistentAlerts.cmd'
+
+
+$alertsCmdText =
+    "@echo off`r`n" +
+    "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"%LOCALAPPDATA%\ShinySlack\PersistentAlerts.ps1`"`r`n"
+
+
+Set-Content `
+    -LiteralPath $alertsStartupCmd `
+    -Value $alertsCmdText `
+    -Encoding ASCII
+
+
+$alertsScript =
+    Join-Path `
+        $root `
+        'PersistentAlerts.ps1'
+
+
+if(Test-Path -LiteralPath $alertsScript) {
+
+    Start-Process `
+        -FilePath $psExe `
+        -ArgumentList (
+            "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"" +
+            $alertsScript +
+            "`""
+        ) `
+        -WindowStyle Hidden |
+    Out-Null
+}
+
+
+Write-ShinyLog "Installed persistent-alert startup entry: $alertsStartupCmd"
+
 
 # Remove legacy persistence from older builds so it cannot spawn duplicates.
 try { Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'ShinySlackWatcher' -ErrorAction SilentlyContinue } catch {}

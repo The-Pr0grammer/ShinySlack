@@ -26,6 +26,72 @@ function Open-ShinySlackUrl {
     Start-Process $Url | Out-Null
 }
 
+# SHINY-V17-PERSISTENT-ALERTS-START-V1
+function Ensure-ShinySlackVisualAlerts {
+    try {
+
+        if(!(Test-Path $stateRoot)) {
+            New-Item `
+                -ItemType Directory `
+                -Path $stateRoot `
+                -Force |
+            Out-Null
+        }
+
+
+        $alerts =
+            Join-Path `
+                $stateRoot `
+                'PersistentAlerts.ps1'
+
+
+        if(!(Test-Path -LiteralPath $alerts)) {
+            return
+        }
+
+
+        $existing =
+            @(
+                Get-CimInstance `
+                    Win32_Process `
+                    -Filter "Name='powershell.exe'" `
+                    -ErrorAction SilentlyContinue |
+                Where-Object {
+                    $_.CommandLine -and
+                    $_.CommandLine -match
+                        'PersistentAlerts\.ps1' -and
+                    $_.CommandLine.IndexOf(
+                        $alerts,
+                        [StringComparison]::OrdinalIgnoreCase
+                    ) -ge 0
+                }
+            )
+
+
+        if($existing.Count -gt 0){
+            return
+        }
+
+
+        $psExe =
+            Join-Path `
+                $env:SystemRoot `
+                'System32\WindowsPowerShell\v1.0\powershell.exe'
+
+
+        Start-Process `
+            -FilePath $psExe `
+            -ArgumentList (
+                '-NoProfile -WindowStyle Hidden ' +
+                '-ExecutionPolicy Bypass ' +
+                '-File "' + $alerts + '"'
+            ) `
+            -WindowStyle Hidden |
+        Out-Null
+    }
+    catch {}
+}
+
 function Ensure-ShinySlackRouter {
     try {
         if(!(Test-Path $stateRoot)) {
@@ -37,7 +103,9 @@ function Ensure-ShinySlackRouter {
 
         $cmdText =
             "@echo off`r`n" +
-            "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"%LOCALAPPDATA%\ShinySlack\Start-ChannelRouter.ps1`"`r`n"
+            "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"%LOCALAPPDATA%\ShinySlack\Start-ChannelRouter.ps1`"`r`n" +
+            "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"%LOCALAPPDATA%\ShinySlack\PersistentAlerts.ps1`"
+"
 
         Set-Content `
             -LiteralPath $startupCmd `
@@ -82,6 +150,7 @@ try {
     }
 
     Ensure-ShinySlackRouter
+    Ensure-ShinySlackVisualAlerts
 
     Remove-Item $outLog,$errLog,$traceLog -Force -ErrorAction SilentlyContinue
 

@@ -99,4 +99,35 @@ if(
         Out-Null
 }
 
+# ============================================================
+# PERSISTENT VISUAL ALERTS
+# SHINY-V17-PERSISTENT-ALERTS-BACKGROUND-V1
+# ============================================================
+
+$alerts =
+    Join-Path `
+        $root `
+        'PersistentAlerts.ps1'
+
+
+if(
+    (Test-Path -LiteralPath $alerts) -and
+    -not (
+        Test-ShinyProcess `
+            -ScriptName 'PersistentAlerts.ps1' `
+            -FullPath $alerts
+    )
+) {
+
+    Start-Process `
+        -FilePath $psExe `
+        -ArgumentList (
+            '-NoProfile -WindowStyle Hidden ' +
+            '-ExecutionPolicy Bypass ' +
+            '-File "' + $alerts + '"'
+        ) `
+        -WindowStyle Hidden |
+    Out-Null
+}
+
 exit 0
