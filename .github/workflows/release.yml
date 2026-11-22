@@ -123,6 +123,10 @@ jobs:
           }
 
           Write-Host 'Install/run UX contract: GREEN'
+      - name: Verify update experience and safe upgrade contract
+        shell: powershell
+        run: .\tools\Update-Contract.ps1
+
       - name: Validate bundled PowerShell
         shell: powershell
         run: |

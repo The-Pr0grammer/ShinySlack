@@ -107,6 +107,10 @@ The installed Desktop/Start shortcuts launch `Start-ShinySlack.ps1` in a hidden 
 - `.github/workflows/pages.yml` - deploys the public landing page.
 - `tools/Privacy-Audit.ps1` - privacy release gate.
 
+## Upgrade guarantee
+
+Every newly published ShinySlack installer must include a user-initiated **Check for Updates** path that locates a real newer Windows installer, provides direct download and SHA-256 links, explains the in-place upgrade steps, preserves existing user settings, and falls back to the official Releases page if discovery fails. Updates must **never** auto-run without consent. The release workflow enforces these capabilities with `tools/Update-Contract.ps1`; see [UPDATE_POLICY.md](UPDATE_POLICY.md) for the required Windows upgrade smoke tests.
+
 ## Release flow
 
 Release tags must point at `main` HEAD and match `app/version.txt`. A tagged release triggers the Windows build workflow, which:

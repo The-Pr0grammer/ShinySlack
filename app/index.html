@@ -871,7 +871,7 @@ button[data-ss-tip]:hover{
       <button id="openDeck" data-ss-tip-title="Open Alert Deck" data-ss-tip="Show the floating alert deck, or bring it to the front if it is hidden behind another window.">Open Alert Deck</button>
       <button id="shutdown" data-ss-tip-title="Close Dashboard" data-ss-tip="Close only this dashboard. ShinySlack notification sounds, routing, floating alerts, and the background watcher continue running.">Close Dashboard</button>
       <button id="uninstall" data-ss-tip-title="Uninstall ShinySlack" data-ss-tip="Remove ShinySlack&#39;s local app files and watcher. Slack itself is not uninstalled.">Uninstall ShinySlack</button>
-      <button id="checkUpdate" data-ss-tip-title="Check for Updates" data-ss-tip="Check GitHub for the latest published ShinySlack release. If a newer version exists, this button changes to View Update.">Check for Updates</button>
+      <button id="checkUpdate" data-ss-tip-title="Check for Updates" data-ss-tip="Check GitHub for the latest published ShinySlack release. If an update exists, download the verified Windows installer directly. Your existing installation can be updated without uninstalling first.">Check for Updates</button>
     </div>
     <div id="updateStatus" class="sub" style="margin-top:10px"></div>
   </section>
@@ -3843,7 +3843,11 @@ async function status(){
     const soundText = s.health==='Custom'?'Custom verified':(s.health==='ConfiguredDeferred'?'Custom configured':(s.health==='Deferred'?'Check deferred':s.health));
     $('health').textContent=s.installed?soundText:'Not installed';
     cls($('health'),(s.health==='Custom'||s.health==='ConfiguredDeferred')?'good':((s.health==='Stock'||s.health==='Deferred')?'warn':'bad'));
-    $('watcher').textContent=s.installed?(s.watcherRunning?'Watching':'Not watching'):'Not installed'; cls($('watcher'),s.watcherRunning?'good':'warn'); $('watcher').title=s.watcherDetail||'';
+        const soundMode=String((s.soundOwnership||{}).mode||'').toLowerCase();
+    const watcherStandby=(soundMode==='routerexclusive' && !(s.soundOwnership||{}).transition);
+    $('watcher').textContent=!s.installed?'Not installed':(watcherStandby?'Standby - Router audio':(s.watcherRunning?'Watching':'Not watching'));
+    cls($('watcher'),watcherStandby?'good':(s.watcherRunning?'good':'warn'));
+    $('watcher').title=watcherStandby?'Legacy cache watcher deliberately stopped because the ShinySlack Router owns audio.':(s.watcherDetail||'If Fallback mode is active, check the legacy watcher heartbeat.');
     if(s.activityCursor){
       shinyActivityCursor=
         String(s.activityCursor);
@@ -3992,53 +3996,66 @@ $('openDeck').onclick=async()=>{
   }catch(e){show(false,e.message||String(e));}
   finally{b.disabled=false;}
 };
+// SHINY-UPDATE-DIRECT-INSTALLER-UX-V1
 let updateReleaseUrl='';
-
+let updateInstallerUrl='';
+function addShinyReleaseLink(parent,caption,url){
+  if(!url || !/^https:\/\/github\.com\/The-Pr0grammer\/ShinySlack\/releases(?:\/|$)/i.test(url)) return;
+  const a=document.createElement('a');
+  a.href=url;
+  a.target='_blank';
+  a.rel='noopener noreferrer';
+  a.textContent=caption;
+  a.style.marginRight='16px';
+  a.style.color='#55d9ff';
+  parent.appendChild(a);
+}
 $('checkUpdate').onclick=async()=>{
   const button=$('checkUpdate');
   const statusEl=$('updateStatus');
-
-  if(updateReleaseUrl){
-    window.open(updateReleaseUrl,'_blank');
-    return;
-  }
-
+  if(updateInstallerUrl){window.open(updateInstallerUrl,'_blank','noopener');return;}
+  if(updateReleaseUrl){window.open(updateReleaseUrl,'_blank','noopener');return;}
   button.disabled=true;
   button.textContent='Checking...';
   statusEl.textContent='Contacting GitHub...';
   statusEl.style.color='';
-
   try{
     const j=await api('/api/update/check');
-
+    if(!j || !j.ok) throw new Error((j&&j.error)||'Update information unavailable');
+    statusEl.textContent='';
     if(j.updateAvailable){
-      updateReleaseUrl=j.releaseUrl;
-      button.textContent='View Update';
+      updateInstallerUrl=j.installerUrl||'';
+      updateReleaseUrl=j.releaseUrl||'';
+      button.textContent=updateInstallerUrl?'Download '+j.latestVersion+' Installer':'View Release';
       button.classList.add('primary');
-
-      statusEl.textContent=
-        'Update available: '+j.latestVersion+
-        ' · Installed: '+j.currentVersion;
-
-      statusEl.style.color='#54e39a';
-    }else{
+      const heading=document.createElement('div');
+      heading.textContent='Update available: '+j.currentVersion+' to '+j.latestVersion;
+      heading.style.color='#54e39a';
+      statusEl.appendChild(heading);
+      const instructions=document.createElement('div');
+      instructions.style.margin='8px 0';
+      instructions.textContent='1. Download ShinySlackSetup.exe.  2. Close this dashboard tab.  3. Run the installer over your existing installation; do not uninstall first.  4. Reopen ShinySlack and check the version badge, sounds, and routing.';
+      statusEl.appendChild(instructions);
+      addShinyReleaseLink(statusEl,'Windows installer',j.installerUrl);
+      addShinyReleaseLink(statusEl,'SHA-256 checksum',j.checksumUrl);
+      addShinyReleaseLink(statusEl,'Release notes',j.releaseUrl);
+    } else {
+      updateReleaseUrl='';
+      updateInstallerUrl='';
       button.textContent='Check for Updates';
       button.classList.remove('primary');
-
-      statusEl.textContent=
-        '✓ Up to date — '+j.currentVersion;
-
+      statusEl.textContent='Up to date - '+j.currentVersion;
       statusEl.style.color='#54e39a';
     }
   }catch(e){
     button.textContent='Check for Updates';
-    statusEl.textContent=e.message;
+    button.classList.remove('primary');
+    statusEl.textContent=(e.message||String(e))+' - Your current installation is unchanged.';
+    statusEl.appendChild(document.createTextNode(' '));
+    addShinyReleaseLink(statusEl,'Open GitHub Releases','https://github.com/The-Pr0grammer/ShinySlack/releases');
     statusEl.style.color='#ff6b7a';
-  }finally{
-    button.disabled=false;
-  }
+  }finally{button.disabled=false;}
 };
-
 $('uninstall').onclick=async()=>{if(!confirm('Remove the ShinySlack watcher and local app files? Slack itself will not be uninstalled.'))return;try{const j=await api('/api/uninstall',{method:'POST'});await waitOperation(j.operationId,'Uninstalling ShinySlack')}catch(e){show(false,e.message)}};
 $('shutdown').onclick=async()=>{try{await api('/api/shutdown',{method:'POST'});document.body.innerHTML='<div style="font-family:Segoe UI;background:#090b11;color:white;height:100vh;display:grid;place-items:center"><div><h1>ShinySlack dashboard closed</h1><p>Background notification routing is still running. You can close this tab.</p></div></div>'}catch(e){show(false,e.message)}};
 /* SHINY-SOUND-PRESETS-LOAD-V1 */

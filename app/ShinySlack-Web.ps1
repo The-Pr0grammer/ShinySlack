@@ -2829,7 +2829,8 @@ $listener=$null}}
                             continue
                         }
 
-                        if(-not [bool]$item.draft) {
+                        if(-not [bool]$item.draft -and
+   @($item.assets | Where-Object { $_.name -eq 'ShinySlackSetup.exe' }).Count -gt 0) {
                             $latest = $item
                         }
                     }
@@ -2866,6 +2867,8 @@ if(!$latest) {
                         latestVersion   = $latestVersion
                         updateAvailable = $updateAvailable
                         releaseUrl      = [string]$latest.html_url
+                        installerUrl    = [string](@($latest.assets | Where-Object { $_.name -eq 'ShinySlackSetup.exe' } | Select-Object -First 1)[0].browser_download_url)
+                        checksumUrl     = [string](@($latest.assets | Where-Object { $_.name -eq 'ShinySlackSetup.exe.sha256' } | Select-Object -First 1)[0].browser_download_url)
                         prerelease      = [bool]$latest.prerelease
                     }
 
