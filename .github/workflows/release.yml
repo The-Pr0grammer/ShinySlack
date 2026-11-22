@@ -10,7 +10,7 @@ on:
       version:
         description: 'Version to build'
         required: false
-        default: '2.5.0-beta.1'
+        default: '2.8.0-dev'
 
 permissions:
   contents: write
@@ -62,6 +62,63 @@ jobs:
 
           Write-Host "Release tag/main/version alignment: GREEN"
 
+
+      - name: Verify install and launch contract
+        shell: pwsh
+        run: |
+          $required = @(
+            '.\app\Start-ShinySlack.cmd',
+            '.\app\Start-ShinySlack.ps1',
+            '.\app\PersistentAlerts.ps1',
+            '.\app\Start-ChannelRouter.ps1',
+            '.\app\ShinySlack.ico',
+            '.\installer\ShinySlack.iss',
+            '.\docs\index.html'
+          )
+
+          foreach($path in $required) {
+            if(!(Test-Path -LiteralPath $path)) {
+              throw "Install/run contract missing required file: $path"
+            }
+          }
+
+          $installer = Get-Content .\installer\ShinySlack.iss -Raw
+          foreach($needle in @(
+            'SetupIconFile=..\app\ShinySlack.ico',
+            'Name: "{autoprograms}\ShinySlack"',
+            'Name: "{autodesktop}\ShinySlack"',
+            'IconFilename: "{app}\ShinySlack.ico"',
+            'Description: "Open ShinySlack now"'
+          )) {
+            if(!$installer.Contains($needle)) {
+              throw "Installer contract missing: $needle"
+            }
+          }
+
+          $launcher = Get-Content .\app\Start-ShinySlack.ps1 -Raw
+          foreach($needle in @(
+            'Ensure-ShinySlackRouter',
+            'Ensure-ShinySlackVisualAlerts',
+            'Open-ShinySlackUrl'
+          )) {
+            if(!$launcher.Contains($needle)) {
+              throw "Launcher contract missing: $needle"
+            }
+          }
+
+          $landing = Get-Content .\docs\index.html -Raw
+          foreach($needle in @(
+            'ShinySlackSetup.exe',
+            'releases?per_page=20',
+            'How do I open it later?',
+            'Windows Action Center'
+          )) {
+            if(!$landing.Contains($needle)) {
+              throw "Landing-page contract missing: $needle"
+            }
+          }
+
+          Write-Host 'Install/run UX contract: GREEN'
       - name: Validate bundled PowerShell
         shell: powershell
         run: |

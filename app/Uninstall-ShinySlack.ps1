@@ -1,4 +1,4 @@
-﻿param([switch]$KeepFiles)
+param([switch]$KeepFiles)
 
 $ErrorActionPreference = 'SilentlyContinue'
 
@@ -45,7 +45,36 @@ ForEach-Object {
         -ErrorAction SilentlyContinue
 }
 
-$startup = [Environment]::GetFolderPath('Startup')
+$startup# SHINY-UNINSTALL-APP-SURFACES-V1
+foreach(
+    $scriptName in
+    @(
+        'PersistentAlerts.ps1',
+        'ShinySlack-Web.ps1'
+    )
+){
+    $fullPath = Join-Path $root $scriptName
+
+    Get-CimInstance `
+        Win32_Process `
+        -Filter "Name='powershell.exe'" `
+        -ErrorAction SilentlyContinue |
+    Where-Object {
+        $_.CommandLine -and
+        $_.CommandLine.IndexOf(
+            $fullPath,
+            [StringComparison]::OrdinalIgnoreCase
+        ) -ge 0
+    } |
+    ForEach-Object {
+        Stop-Process `
+            -Id $_.ProcessId `
+            -Force `
+            -ErrorAction SilentlyContinue
+    }
+}
+
+ = [Environment]::GetFolderPath('Startup')
 
 Remove-Item `
     (Join-Path $startup 'ShinySlack-Watcher.cmd') `
@@ -54,6 +83,11 @@ Remove-Item `
 
 Remove-Item `
     (Join-Path $startup 'ShinySlack-ChannelRouter.cmd') `
+    -Force `
+    -ErrorAction SilentlyContinue
+
+Remove-Item `
+    (Join-Path $startup 'ShinySlack-PersistentAlerts.cmd') `
     -Force `
     -ErrorAction SilentlyContinue
 

@@ -23,6 +23,10 @@ Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 SetupLogging=yes
+SetupIconFile=..\app\ShinySlack.ico
+UninstallDisplayIcon={app}\ShinySlack.ico
+AppComments=Custom Slack notification sounds, routing, and visual alerts
+VersionInfoDescription=ShinySlack Windows notification companion
 UninstallDisplayName={#MyAppName}
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -33,22 +37,20 @@ RestartApplications=no
 Source: "..\app\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{autoprograms}\ShinySlack"; Filename: "{app}\{#MyAppExe}"; WorkingDir: "{app}"; Comment: "Open ShinySlack"
-Name: "{autoprograms}\ShinySlack Background"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-ShinySlack-Background.ps1"""; WorkingDir: "{app}"; Comment: "Start ShinySlack notification routing without opening the dashboard"
-Name: "{autodesktop}\ShinySlack"; Filename: "{app}\{#MyAppExe}"; WorkingDir: "{app}"; Tasks: desktopicon; Comment: "Open ShinySlack"
-
+Name: "{autoprograms}\ShinySlack"; Filename: "{app}\{#MyAppExe}"; WorkingDir: "{app}"; IconFilename: "{app}\ShinySlack.ico"; Comment: "Open ShinySlack dashboard and notification alerts"
+Name: "{autodesktop}\ShinySlack"; Filename: "{app}\{#MyAppExe}"; WorkingDir: "{app}"; IconFilename: "{app}\ShinySlack.ico"; Tasks: desktopicon; Comment: "Open ShinySlack dashboard and notification alerts"
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: checkedonce
 
 [Run]
-Filename: "{app}\{#MyAppExe}"; WorkingDir: "{app}"; Description: "Launch ShinySlack"; Flags: postinstall nowait skipifsilent shellexec
-
+Filename: "{app}\{#MyAppExe}"; WorkingDir: "{app}"; Description: "Open ShinySlack now"; Flags: postinstall nowait skipifsilent shellexec
 [UninstallRun]
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\Uninstall-ShinySlack.ps1"" -KeepFiles"; Flags: runhidden waituntilterminated; RunOnceId: "ShinySlackCleanup"
 
 [UninstallDelete]
 Type: files; Name: "{userstartup}\ShinySlack-Watcher.cmd"
 Type: files; Name: "{userstartup}\ShinySlack-ChannelRouter.cmd"
+Type: files; Name: "{userstartup}\ShinySlack-PersistentAlerts.cmd"
 Type: filesandordirs; Name: "{app}\channel-sounds"
 Type: filesandordirs; Name: "{app}\wave-cache"
 Type: files; Name: "{app}\*.log"

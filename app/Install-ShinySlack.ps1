@@ -76,7 +76,7 @@ Copy-Item $sourceMp3 (Join-Path $root 'custom.mp3') -Force
 Set-Content (Join-Path $root 'agent.version') 'V17' -Encoding ASCII
 
 # Persist the current web build with the installed app.
-foreach ($webName in @('ShinySlack-Web.ps1','ShinySlack-Operation.ps1','index.html','Start-ShinySlack.cmd','Start-ShinySlack.ps1','Start-ShinySlack-Background.ps1','Install-ShinySlack.ps1','version.txt')) {
+foreach ($webName in @('ShinySlack-Web.ps1','ShinySlack-Operation.ps1','index.html','Start-ShinySlack.cmd','Start-ShinySlack.ps1','Start-ShinySlack-Background.ps1','Install-ShinySlack.ps1','ShinySlack.ico','version.txt')) {
     $webSrc = Join-Path $PSScriptRoot $webName
     if (Test-Path $webSrc) { Copy-ShinyFileIfNeeded -Source $webSrc -Destination (Join-Path $root $webName) }
 }
@@ -124,8 +124,14 @@ try {
         $shortcut = $ws.CreateShortcut($shortcutPath)
         $shortcut.TargetPath = Join-Path $root 'Start-ShinySlack.cmd'
         $shortcut.WorkingDirectory = $root
-        $shortcut.IconLocation = "$env:SystemRoot\System32\shell32.dll,168"
-        $shortcut.Description = 'Open ShinySlack'
+        $iconPath = Join-Path $root 'ShinySlack.ico'
+        if(Test-Path -LiteralPath $iconPath){
+            $shortcut.IconLocation = "$iconPath,0"
+        }
+        else {
+            $shortcut.IconLocation = "$env:SystemRoot\System32\shell32.dll,168"
+        }
+        $shortcut.Description = 'Open ShinySlack dashboard and notification alerts'
         $shortcut.Save()
     }
 } catch {}
@@ -158,8 +164,8 @@ $routerStartupCmd = Join-Path $startupDir 'ShinySlack-ChannelRouter.cmd'
 
 $routerCmdText =
     "@echo off`r`n" +
-    "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"%LOCALAPPDATA%\ShinySlack\Start-ChannelRouter.ps1`"`r`n"
-
+    "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"%LOCALAPPDATA%\ShinySlack\Start-ChannelRouter.ps1`"`r`n" +
+    "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"%LOCALAPPDATA%\ShinySlack\PersistentAlerts.ps1`"`r`n"
 Set-Content `
     -LiteralPath $routerStartupCmd `
     -Value $routerCmdText `
@@ -176,32 +182,25 @@ if(Test-Path -LiteralPath $routerLauncher) {
 }
 
 Write-ShinyLog "Installed channel-router startup entry: $routerStartupCmd"
-# SHINY-V17-PERSISTENT-ALERTS-INSTALL-V1
+# SHINY-V17-PERSISTENT-ALERTS-INSTALL-V2
+# Startup persistence is owned by ShinySlack-ChannelRouter.cmd.
+# Remove the old separate entry if upgrading from an earlier prototype.
 $alertsStartupCmd =
     Join-Path `
         $startupDir `
         'ShinySlack-PersistentAlerts.cmd'
 
-
-$alertsCmdText =
-    "@echo off`r`n" +
-    "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"%LOCALAPPDATA%\ShinySlack\PersistentAlerts.ps1`"`r`n"
-
-
-Set-Content `
+Remove-Item `
     -LiteralPath $alertsStartupCmd `
-    -Value $alertsCmdText `
-    -Encoding ASCII
-
+    -Force `
+    -ErrorAction SilentlyContinue
 
 $alertsScript =
     Join-Path `
         $root `
         'PersistentAlerts.ps1'
 
-
 if(Test-Path -LiteralPath $alertsScript) {
-
     Start-Process `
         -FilePath $psExe `
         -ArgumentList (
@@ -213,8 +212,7 @@ if(Test-Path -LiteralPath $alertsScript) {
     Out-Null
 }
 
-
-Write-ShinyLog "Installed persistent-alert startup entry: $alertsStartupCmd"
+Write-ShinyLog "Persistent alerts started; Startup persistence is consolidated with the channel router."
 
 
 # Remove legacy persistence from older builds so it cannot spawn duplicates.

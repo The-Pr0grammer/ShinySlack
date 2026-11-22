@@ -1,65 +1,63 @@
-# Publish ShinySlack in ~5 minutes
+# Publish ShinySlack
 
-## Fastest route
+## Release path
 
-Open PowerShell **inside this repo folder**.
+ShinySlack's public user flow is:
 
-1. Confirm Git exists:
+1. GitHub Pages landing page.
+2. `ShinySlackSetup.exe`.
+3. Installer creates the branded **ShinySlack** Desktop and Start-menu shortcuts.
+4. Setup launches ShinySlack.
+5. The local dashboard opens and the persistent alert deck/router start.
+6. Later, the user simply opens **ShinySlack** again from Desktop or Start.
 
-```powershell
-git --version
-```
+The landing page discovers the newest non-draft GitHub Release that actually contains `ShinySlackSetup.exe`, including prereleases. It does not assume that the newest Git tag has a release asset.
 
-2. Install GitHub CLI if needed:
+## Before cutting a release
 
-```powershell
-winget install --id GitHub.cli -e
-```
-
-3. Sign in once:
-
-```powershell
-gh auth login
-```
-
-Choose **GitHub.com → HTTPS → Login with a web browser**.
-
-4. Publish everything:
+Open PowerShell in the repository and confirm:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\Publish-ShinySlack.ps1
+git status
+git branch --show-current
+Get-Content .\app\version.txt
 ```
 
-The script creates/pushes the public `ShinySlack` repo, enables GitHub Pages, and pushes `v0.1.0-beta`.
+Release tags must point at `main` HEAD and match `app/version.txt`.
 
-That tag triggers GitHub Actions on a Windows runner. The workflow installs Inno Setup, compiles `ShinySlackSetup.exe`, calculates its SHA-256, and creates the GitHub Release.
+## Build/publish
 
-The Pages workflow deploys the landing page. Its **Download for Windows** button points automatically to the latest release installer.
+A `v*` tag on `main` triggers `.github/workflows/release.yml`.
 
-## URLs
+The workflow:
 
-After publish, the script prints your exact URLs. They will follow this shape:
+- validates every bundled PowerShell script;
+- verifies the install/run UX contract;
+- compiles the Inno Setup installer;
+- generates `ShinySlackSetup.exe.sha256`; and
+- publishes the installer + checksum to the GitHub Release.
 
-```text
-https://github.com/YOUR_USERNAME/ShinySlack
-https://github.com/YOUR_USERNAME/ShinySlack/releases/latest
-https://YOUR_USERNAME.github.io/ShinySlack/
-```
+The GitHub Pages landing page is deployed from `docs/` whenever `docs/**` changes on `main`.
 
-## If the release workflow fails
+## Fresh-machine smoke test
 
-Open the repo → **Actions → Build Windows installer and release**. The PowerShell parser validation and Inno Setup build output should identify the exact failure.
+Before sharing the public landing-page URL, test from a second Windows profile or clean machine:
 
-## First coworker test
+1. Open the public ShinySlack landing page.
+2. Confirm the main button resolves to a real `ShinySlackSetup.exe` release asset.
+3. Download the installer and checksum.
+4. Run the installer without admin rights.
+5. Confirm the installer shows ShinySlack branding/icon.
+6. Confirm **Open ShinySlack now** is offered at the end.
+7. Confirm the first launch opens the local dashboard and starts the alert deck.
+8. Close the dashboard and deck.
+9. Double-click the branded **ShinySlack** Desktop shortcut.
+10. Confirm the dashboard and deck reopen.
+11. Confirm the Start-menu **ShinySlack** shortcut does the same.
+12. Confirm Slack built-in notifications produce audio + a deck alert + Activity.
+13. Confirm a notification on another monitor is still detected.
+14. Confirm Windows Action Center-only notifications are correctly documented as unsupported.
+15. Log out/in or reboot and confirm the background router/deck persistence returns.
+16. Uninstall ShinySlack and confirm the Desktop shortcut, Startup entries, router, deck, and web backend are removed.
 
-Do this before blasting the link around:
-
-- Download the installer from the public landing page on a second Windows profile/machine.
-- Confirm Windows/SmartScreen behavior.
-- Install without admin rights.
-- Prime Knock Brush with one real Slack notification.
-- Apply a short MP3.
-- Confirm all four ShinySlack status cards are healthy.
-- Log out/in or reboot and confirm `Watcher: Watching` returns.
-
-Then send the landing-page URL to coworkers.
+Only after this passes should the landing-page URL be handed to fresh users.

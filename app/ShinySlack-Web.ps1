@@ -149,7 +149,7 @@ function Sync-InstalledShinySlackAgent {
 
         $configPath=Join-Path $script:Root 'config.json'
         $runtime=@('ShinySlack.Common.ps1','Repair-ShinySlack.ps1','Watch-ShinySlack.ps1','Set-ShinySlackSound.ps1','Uninstall-ShinySlack.ps1','ShinySlack-Operation.ps1','ChannelRouter.ps1','Start-ChannelRouter.ps1','PersistentAlerts.ps1','Set-ChannelSound.ps1','Set-DefaultSound.ps1','silent-slack.mp3')
-        $web=@('ShinySlack-Web.ps1','index.html','Start-ShinySlack.cmd','Start-ShinySlack.ps1','Start-ShinySlack-Background.ps1','Install-ShinySlack.ps1','version.txt')
+        $web=@('ShinySlack-Web.ps1','index.html','Start-ShinySlack.cmd','Start-ShinySlack.ps1','Start-ShinySlack-Background.ps1','Install-ShinySlack.ps1','ShinySlack.ico','version.txt')
 
         # Validate every PowerShell file before copying anything into the installed app.
         $parseFailures=@()
@@ -1410,9 +1410,58 @@ function Get-StatusObject {
     $statusObject
 }
 function Persist-WebFiles {
-    if(!(Test-Path $script:Root)){New-Item -ItemType Directory -Path $script:Root -Force|Out-Null}
-    foreach($name in @('ShinySlack-Web.ps1','ShinySlack-Operation.ps1','index.html','Start-ShinySlack.cmd','Start-ShinySlack.ps1','Start-ShinySlack-Background.ps1','Install-ShinySlack.ps1','version.txt')){$src=Join-Path $script:SourceDir $name;if(Test-Path $src){$dst=Join-Path $script:Root $name;if([IO.Path]::GetFullPath($src) -ne [IO.Path]::GetFullPath($dst)){Copy-Item $src $dst -Force}}}
-    try{$desktop=[Environment]::GetFolderPath('Desktop');$lnk=Join-Path $desktop 'ShinySlack.lnk';$ws=New-Object -ComObject WScript.Shell;$s=$ws.CreateShortcut($lnk);$s.TargetPath=Join-Path $script:Root 'Start-ShinySlack.cmd';$s.WorkingDirectory=$script:Root;$s.IconLocation="$env:SystemRoot\System32\shell32.dll,168";$s.Description='Open ShinySlack';$s.Save()}catch{}
+    if(!(Test-Path $script:Root)){
+        New-Item -ItemType Directory -Path $script:Root -Force | Out-Null
+    }
+
+    foreach(
+        $name in
+        @(
+            'ShinySlack-Web.ps1',
+            'ShinySlack-Operation.ps1',
+            'index.html',
+            'Start-ShinySlack.cmd',
+            'Start-ShinySlack.ps1',
+            'Start-ShinySlack-Background.ps1',
+            'Install-ShinySlack.ps1',
+            'ShinySlack.ico',
+            'version.txt'
+        )
+    ){
+        $src = Join-Path $script:SourceDir $name
+
+        if(Test-Path $src){
+            $dst = Join-Path $script:Root $name
+
+            if(
+                [IO.Path]::GetFullPath($src) -ne
+                [IO.Path]::GetFullPath($dst)
+            ){
+                Copy-Item $src $dst -Force
+            }
+        }
+    }
+
+    try {
+        $desktop = [Environment]::GetFolderPath('Desktop')
+        $lnk = Join-Path $desktop 'ShinySlack.lnk'
+        $ws = New-Object -ComObject WScript.Shell
+        $s = $ws.CreateShortcut($lnk)
+        $s.TargetPath = Join-Path $script:Root 'Start-ShinySlack.cmd'
+        $s.WorkingDirectory = $script:Root
+
+        $icon = Join-Path $script:Root 'ShinySlack.ico'
+        if(Test-Path -LiteralPath $icon){
+            $s.IconLocation = "$icon,0"
+        }
+        else {
+            $s.IconLocation = "$env:SystemRoot\System32\shell32.dll,168"
+        }
+
+        $s.Description = 'Open ShinySlack dashboard and notification alerts'
+        $s.Save()
+    }
+    catch {}
 }
 function Start-AsyncOperation {
     param([string]$Script,[string[]]$Arguments=@(),[string]$CleanupPath='',[string]$RequestId='SERVER')
