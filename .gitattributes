@@ -1,1 +1,4 @@
 app/HtmlDeck/host/Program.cs text eol=lf
+# Preserve SHA-256-pinned production deck JavaScript bytes on Windows
+app/HtmlDeck/deck-live.js -text
+app/HtmlDeck/host/app/deck-live.js -text
