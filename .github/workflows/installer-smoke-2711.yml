@@ -28,9 +28,9 @@ jobs:
             throw 'Wrong candidate version.'
           }
           & .\tools\Release-2711-Contract.ps1
-          if ($LASTEXITCODE -ne 0) { throw 'Release contract failed.' }
+          if (-not $?) { throw 'Release contract failed.' }
           & .\tools\Update-Contract.ps1
-          if ($LASTEXITCODE -ne 0) { throw 'Update contract failed.' }
+          if (-not $?) { throw 'Update contract failed.' }
 
       - name: Download successfully built v2.7.11 artifact
         shell: pwsh
