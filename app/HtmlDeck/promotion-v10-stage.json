@@ -1,9 +1,9 @@
-﻿{
+{
     "Schema":  "html-deck-prod-stage-v10",
     "Created":  "2026-11-22T16:17:51.2853063-08:00",
     "V8SourceSha":  "d4a8f94fdd2c1f957a223945e4bbbf3ee661c64dde97908b75a7ace10728c28c",
     "SourceSha":  "0305557ac6168bc9cfcd7466ad921df5d70a3f402bd5f2e4eb84d734d960ad88",
-    "JsSha":  "a906467c76196f83723161413d022af040f3a7f0b0b2050e6c2c0eea2f232056",
+    "JsSha": "3dace6c39229cb6a5347a9ec4b7b18e9c6dc80ae8f8812cd056e20f32600f561",
     "HtmlSha":  "ebc97724585f892a5e1b6f00993354e0a9ae2b22c2fbb50ca506215938792306",
     "HostExeSha":  "b2f9236fdcb2ebc066a5625d38c1cfa5df177614e7cf27451db2eeaf0817af94",
     "GuardSha":  "4348e8955ae47518f7ba45c2072fac766b46b91a498b355dd4ff3b3d643211fb",

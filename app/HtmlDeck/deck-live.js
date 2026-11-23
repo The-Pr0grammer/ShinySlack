@@ -8,6 +8,7 @@ const bridge=window.chrome&&window.chrome.webview;
 let state=null;
 let errorUntil=0;
 let lastFeedSignature=null;
+let lastRenderDirection=null; // SHINY-TOPDOWN-SCROLL-HOTFIX-V1
 const request=(action,details={})=>{ if(!bridge){showError('Requires the ShinySlack WebView2 host.');return} bridge.postMessage({action,...details}); };
 function showError(text){$('error-banner').textContent=String(text);$('error-banner').hidden=false;errorUntil=Date.now()+7000;}
 const node=(tag,cls,txt)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(txt!==undefined)n.textContent=String(txt);return n;};
@@ -95,6 +96,11 @@ function render(next){
  textIcon('mute','volume',state.volumeEnabled&&state.volumePercent>0?'Mute':'Unmute');
  $('status').textContent=state.status==='Watching live router events'?'Listening for alerts':state.status==='Waiting for channel-router.log'?'Waiting for notifications':state.status;
  const feed=$('feed');
+ if(lastRenderDirection!==null && lastRenderDirection!==state.direction){
+   // Reverse-layout scroll offsets must not carry into normal top-down flow.
+   feed.scrollTop=0;
+ }
+ lastRenderDirection=state.direction;
  // The host refreshes status every four seconds. Do not destroy live DOM and
  // keyboard focus when no alerts have changed (especially during an X click).
  const signature=JSON.stringify(state.events.map(a=>[a.id,a.channel,a.time,a.color,!!a.sample]));
