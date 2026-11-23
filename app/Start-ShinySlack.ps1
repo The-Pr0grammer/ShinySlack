@@ -119,7 +119,7 @@ function Ensure-ShinySlackRouter {
         $cmdText =
             "@echo off`r`n" +
             "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"%LOCALAPPDATA%\ShinySlack\Start-ChannelRouter.ps1`"`r`n" +
-            "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"%LOCALAPPDATA%\ShinySlack\PersistentAlerts.ps1`"
+            "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"%LOCALAPPDATA%\ShinySlack\HtmlDeck\Launch-HTMLDeck-Owner.ps1`"
 "
 
         Set-Content `
@@ -165,8 +165,8 @@ try {
     }
 
     Ensure-ShinySlackRouter
-    Ensure-ShinySlackVisualAlerts
-
+    # SHINY-HTML-OWNERSHIP-HANDOFF-V1
+    & (Join-Path $stateRoot 'HtmlDeck\Launch-HTMLDeck-Owner.ps1') -Start
     Remove-Item $outLog,$errLog,$traceLog -Force -ErrorAction SilentlyContinue
 
     $ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'

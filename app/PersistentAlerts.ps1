@@ -158,17 +158,56 @@ $script:AlertVisual =
             64
 
         CardRadius =
-            14
+            13
 
         CardGap =
             9
 
         RailWidth =
-            6
+            4
     }
 
 
 
+# SHINY-2710-NATIVE-SAFE-THEMES-V1
+# Palette surfaces only. No custom Paint event, brushes, or gradient constructors.
+$script:NativeThemeName = ''
+$script:NativeThemeLastCheck = [datetime]::MinValue
+$script:NativeThemePath = Join-Path $root 'visual-theme.json'
+function Sync-NativeTheme {
+    if (((Get-Date) - $script:NativeThemeLastCheck).TotalMilliseconds -lt 1200) { return $false }
+    $script:NativeThemeLastCheck = Get-Date
+    $name = 'shiny'
+    if (Test-Path -LiteralPath $script:NativeThemePath) {
+        try {
+            $cfg = Get-Content -LiteralPath $script:NativeThemePath -Raw -Encoding UTF8 | ConvertFrom-Json
+            if (@('shiny','ghost','retro','arcade') -contains [string]$cfg.theme) {
+                $name = [string]$cfg.theme
+            }
+        } catch {
+            # A partial/corrupted settings write must never interrupt alert handling.
+            return $false
+        }
+    }
+    if ($script:NativeThemeName -eq $name) { return $false }
+    $script:NativeThemeName = $name
+    $colors = switch ($name) {
+        'ghost'  { @('#251b37','#161122','#21182f','#584570','#2b2040','#1e172e','#f4ecff','#e3d9f3','#bbaed1','#9986b0','#bd90ff','#77618c') }
+        'retro'  { @('#c7d6ac','#d9e4c4','#d0dcb8','#587158','#b6c99a','#d9e4c4','#233727','#2e4732','#445b42','#526b50','#345b40','#748c65') }
+        'arcade' { @('#182657','#0a1230','#101839','#4e5da4','#15214b','#0e1639','#f4f7ff','#dde6ff','#bbc4e7','#8e9ed0','#54dcff','#697cc1') }
+        default  { @('#090b11','#080b11','#0a1018','#252c3a','#0e121b','#0b0f17','#f5f7fb','#d6deea','#9aa6b7','#687489','#55d8ff','#465265') }
+    }
+    $names = @('PageBackground','CardBackground','HoverBackground','Border','HeaderSurface','ControlSurface','Text','SecondaryText','Muted','Meta','DefaultAccent','ScrollThumb')
+    for ($i=0; $i -lt $names.Count; $i++) {
+        $script:AlertVisual.($names[$i]) = [Drawing.ColorTranslator]::FromHtml($colors[$i])
+    }
+    # Original deck form is instantiated once, so refresh its underlying canvas as well.
+    if ($null -ne $form -and -not $form.IsDisposed) {
+        $form.BackColor = $script:AlertVisual.PageBackground
+        $form.ForeColor = $script:AlertVisual.Text
+    }
+    return $true
+}
 if(Test-Path $log) {
     try {
         $script:Offset = (Get-Item $log).Length
@@ -2091,7 +2130,9 @@ function Add-DeckCornerHandles {
         $hit.Width=14;$hit.Height=14
         $hit.Left=if($corner.EndsWith('L')){0}else{$form.ClientSize.Width-14}
         $hit.Top=if($corner.StartsWith('T')){0}else{$form.ClientSize.Height-14}
-        $hit.BackColor=$script:AlertVisual.PageBackground
+        # SHINY-2710-CORNER-CLIP-V2: the top handle overlays the header.
+        # Give it the header's surface rather than painting a dark square.
+        $hit.BackColor=if($corner.StartsWith('T')){$script:AlertVisual.HeaderSurface}else{$script:AlertVisual.PageBackground}
         $hit.Cursor=if($corner -in @('TL','BR')){[System.Windows.Forms.Cursors]::SizeNWSE}else{[System.Windows.Forms.Cursors]::SizeNESW}
         $hit.AccessibleName='Resize deck from '+$corner+' corner'
         $hit.Tag=$corner
@@ -2647,12 +2688,16 @@ function Render-Expanded {
             $shell.Width = ($script:DeckWidth - 14)
             $shell.Height = $script:AlertVisual.CardHeight
 
-$shell.BackColor =
-                [Drawing.Color]::FromArgb(
-                    [int][Math]::Round(37 * 0.66 + $accent.R * 0.34),
-                    [int][Math]::Round(44 * 0.66 + $accent.G * 0.34),
-                    [int][Math]::Round(58 * 0.66 + $accent.B * 0.34)
-                )
+# SHINY-2710-CARD-ALIGN-V1
+            # SHINY-2710-PARITY-V2: Keep the semantic rail vivid; quiet the
+            # one-pixel shell border to match Activity's restrained outline.
+            # SHINY-2710-CANDY-EDGE-V7: rounded accent backing, not a separate rail.
+            # A softened event hue follows the SAME rounded outer card contour.
+            $shell.BackColor = [Drawing.Color]::FromArgb(
+                [int][Math]::Round($accent.R * 0.78 + $script:AlertVisual.Border.R * 0.22),
+                [int][Math]::Round($accent.G * 0.78 + $script:AlertVisual.Border.G * 0.22),
+                [int][Math]::Round($accent.B * 0.78 + $script:AlertVisual.Border.B * 0.22)
+            )
 
             $shell.Tag = $a.Channel
             $shell.Cursor =
@@ -2670,13 +2715,24 @@ $shell.BackColor =
             $card =
                 New-Object System.Windows.Forms.Panel
 
-            $card.Left = 1
+            # Inset the card to reveal a curved 4px accent on the left.
+            # Top/bottom/right remain a fine outline; no overlay or square strip.
+            $card.Left = 4
             $card.Top = 1
-            $card.Width = ($script:DeckWidth - 16)
-            $card.Height = ($script:AlertVisual.CardHeight - 2)
+            $card.Width = ($shell.Width - 5)
+            $card.Height = ($shell.Height - 2)
 
-            $card.BackColor =
-                $script:AlertVisual.CardBackground
+            # A quiet accent wash without custom painting or gradient brushes.
+            # Activity uses a dark themed inset with an accent rail.
+            # SHINY-2710-ACTIVITY-PARITY-V3: Use exactly the Activity inset
+            # surface. A themed accent rail already provides identity.
+            $wash = 0.0
+            $base = $script:AlertVisual.CardBackground
+            $card.BackColor = [Drawing.Color]::FromArgb(
+                [int][Math]::Round($base.R * (1-$wash) + $accent.R * $wash),
+                [int][Math]::Round($base.G * (1-$wash) + $accent.G * $wash),
+                [int][Math]::Round($base.B * (1-$wash) + $accent.B * $wash)
+            )
 
             $card.Tag = $a.Channel
             $card.Cursor =
@@ -2687,25 +2743,7 @@ $shell.BackColor =
             Set-RoundedRegion $card ($script:AlertVisual.CardRadius - 1)
 
 
-            # -------------------------------------------------
-            # ACCENT RAIL
-            # -------------------------------------------------
-
-            $rail =
-                New-Object System.Windows.Forms.Panel
-
-            $rail.Left = 0
-            $rail.Top = 0
-            $rail.Width = $script:AlertVisual.RailWidth
-            $rail.Height = ($script:AlertVisual.CardHeight - 2)
-
-            $rail.BackColor = $accent
-            $rail.Tag = $a.Channel
-
-            $rail.Cursor =
-                [Windows.Forms.Cursors]::Hand
-
-            $rail.Add_Click($openSlack)
+            # v7: no independent rail panel; shell is the curved accent.
             # -------------------------------------------------
             # CHANNEL - canonical Activity visual identity
             # Real WinForms label; do not custom-paint notification text.
@@ -2716,10 +2754,10 @@ $shell.BackColor =
                 New-Object System.Windows.Forms.Label
 
             $channel.Left =
-                14
+                18
 
             $channel.Top =
-                12
+                10
 
             $channel.Width =
                 ($script:DeckWidth - 164)
@@ -2739,8 +2777,12 @@ $shell.BackColor =
             $channel.BackColor =
                 [Drawing.Color]::Transparent
 
-            $channel.ForeColor =
-                $accent
+            # Arcade receives a distinctive neon-cyan title; other themes stay neutral.
+            $channel.ForeColor = if ($script:NativeThemeName -eq 'arcade') {
+                [Drawing.ColorTranslator]::FromHtml('#7EE8FF')
+            } else {
+                $script:AlertVisual.Text
+            }
 
             $channel.Font =
                 New-Object Drawing.Font(
@@ -2774,7 +2816,17 @@ $shell.BackColor =
 
             $time.TextAlign = 'MiddleRight'
             $time.Text = $a.Time.ToString('h:mm tt')
-            $time.ForeColor = $accent
+            # Arcade: pink timestamp; preserve the existing softened event
+            # color calculation for Shiny, Ghost Type and Retro Cartridge.
+            $time.ForeColor = if ($script:NativeThemeName -eq 'arcade') {
+                [Drawing.ColorTranslator]::FromHtml('#FF8BC8')
+            } else {
+                [Drawing.Color]::FromArgb(
+                    [int][Math]::Round($accent.R * 0.65 + $script:AlertVisual.SecondaryText.R * 0.35),
+                    [int][Math]::Round($accent.G * 0.65 + $script:AlertVisual.SecondaryText.G * 0.35),
+                    [int][Math]::Round($accent.B * 0.65 + $script:AlertVisual.SecondaryText.B * 0.35)
+                )
+            }
 
             $time.Font =
                 New-Object Drawing.Font(
@@ -2802,15 +2854,13 @@ $shell.BackColor =
             $x.Height = 24
             $x.Tag = $a.Id
 
-            $x.BackColor =
-                $script:AlertVisual.CardBackground
-
-            $x.ForeColor =
-                $script:AlertVisual.Muted
-
-            $x.FlatAppearance.BorderColor =
-                $script:AlertVisual.Border
-
+            # Quiet, borderless dismiss affordance (Activity-style chrome).
+            $x.BackColor = $card.BackColor
+            $x.ForeColor = $script:AlertVisual.Muted
+            $x.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+            $x.FlatAppearance.BorderSize = 0
+            $x.FlatAppearance.MouseOverBackColor = $script:AlertVisual.HoverBackground
+            $x.FlatAppearance.MouseDownBackColor = $script:AlertVisual.HoverBackground
             Set-RoundedRegion $x 8
 
 
@@ -2843,13 +2893,11 @@ $x.Add_Click({
             })
 
 
-            $card.Controls.Add($rail)
             $card.Controls.Add($channel)
             $card.Controls.Add($time)
             $card.Controls.Add($x)
 
-            # Keep the accent rail visually above the transparent label.
-            $rail.BringToFront()
+            # v7: the shell itself supplies the curved accent backing.
             $time.BringToFront()
             $x.BringToFront()
 
@@ -2865,8 +2913,11 @@ $x.Add_Click({
         }else{ $autoHeight }
 
 
+        # SHINY-2710-CORNER-CLIP-V2: 46px top offset means form-42
+        # extended four pixels past the bottom of the rounded form.
+        # Keep the card viewport inside the form for both growth directions.
         $viewport.Height =
-            $form.Height - 42
+            [Math]::Max(24,($form.Height - 46))
 
 
         $content.Height =
@@ -3492,6 +3543,7 @@ $timer.Add_Tick({
     }
 
     Read-Settings
+    if (Sync-NativeTheme) { Render }
     # SHINY-MUTE-FAILSAFE-279-V1
     # Visible deck pulse: Router may preserve intentional mute while visible.
     try {

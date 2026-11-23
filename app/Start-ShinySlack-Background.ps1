@@ -101,33 +101,8 @@ if(
 
 # ============================================================
 # PERSISTENT VISUAL ALERTS
-# SHINY-V17-PERSISTENT-ALERTS-BACKGROUND-V1
-# ============================================================
-
-$alerts =
-    Join-Path `
-        $root `
-        'PersistentAlerts.ps1'
-
-
-if(
-    (Test-Path -LiteralPath $alerts) -and
-    -not (
-        Test-ShinyProcess `
-            -ScriptName 'PersistentAlerts.ps1' `
-            -FullPath $alerts
-    )
-) {
-
-    Start-Process `
-        -FilePath $psExe `
-        -ArgumentList (
-            '-NoProfile -WindowStyle Hidden ' +
-            '-ExecutionPolicy Bypass ' +
-            '-File "' + $alerts + '"'
-        ) `
-        -WindowStyle Hidden |
-    Out-Null
-}
-
+# SHINY-HTML-OWNERSHIP-HANDOFF-V1
+$coordinator = Join-Path $root 'HtmlDeck\Launch-HTMLDeck-Owner.ps1'
+if(Test-Path -LiteralPath $coordinator){ & $coordinator -Start }
+else { throw 'HTML coordinator missing; native fallback must be launched through the legacy path.' }
 exit 0

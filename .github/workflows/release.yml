@@ -10,7 +10,7 @@ on:
       version:
         description: 'Version to build'
         required: false
-        default: '2.7.9'
+        default: '2.7.11'
 
 permissions:
   contents: write
@@ -127,9 +127,9 @@ jobs:
         shell: powershell
         run: .\tools\Update-Contract.ps1
 
-      - name: Enforce v2.7.9 deck and website release contract
+      - name: Enforce v2.7.11 deck and website release contract
         shell: powershell
-        run: .\tools\Release-279-Contract.ps1
+        run: .\tools\Release-2711-Contract.ps1
 
       - name: Validate bundled PowerShell
         shell: powershell
