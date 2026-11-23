@@ -1,0 +1,111 @@
+name: v2.7.11 installer smoke test (nonpublishing)
+
+on:
+  push:
+    branches:
+      - release/v2.7.11-stage
+    paths:
+      - .github/workflows/installer-smoke-2711.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  install-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout release candidate
+        uses: actions/checkout@v4
+
+      - name: Verify candidate version
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ((Get-Content .\app\version.txt -Raw).Trim() -ne 'v2.7.11') {
+            throw 'Wrong candidate version.'
+          }
+          & .\tools\Release-2711-Contract.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Release contract failed.' }
+          & .\tools\Update-Contract.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Update contract failed.' }
+
+      - name: Download successfully built v2.7.11 artifact
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          gh run download 45094835579 --repo '${{ github.repository }}' --name 'ShinySlackSetup-2.7.11' --dir .\smoke-artifact
+          if ($LASTEXITCODE -ne 0) { throw 'Artifact download failed.' }
+          if (!(Test-Path .\smoke-artifact\ShinySlackSetup.exe)) { throw 'Missing installer.' }
+          if (!(Test-Path .\smoke-artifact\ShinySlackSetup.exe.sha256)) { throw 'Missing checksum.' }
+
+      - name: Verify installer SHA-256
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $actual = (Get-FileHash .\smoke-artifact\ShinySlackSetup.exe -Algorithm SHA256).Hash
+          $line = (Get-Content .\smoke-artifact\ShinySlackSetup.exe.sha256 -Raw).Trim()
+          if ($line -notmatch '^([a-fA-F0-9]{64})\s+ShinySlackSetup\.exe$') { throw 'Bad checksum file format.' }
+          if ($actual -ne $Matches[1]) { throw 'Installer checksum mismatch.' }
+          Write-Host 'PASS: Installer artifact checksum matches.'
+
+      - name: Silent per-user install on disposable runner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = (Resolve-Path .\smoke-artifact\ShinySlackSetup.exe).Path
+          $proc = Start-Process -FilePath $installer -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-' -Wait -PassThru
+          if ($proc.ExitCode -ne 0) { throw "Inno Setup installer failed with exit $($proc.ExitCode)" }
+          Write-Host 'PASS: Silent installer returned zero.'
+
+      - name: Validate files actually installed
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $app = Join-Path $env:LOCALAPPDATA 'ShinySlack'
+          $required = @(
+            'version.txt',
+            'Start-ShinySlack.ps1',
+            'Start-ShinySlack-Background.ps1',
+            'PersistentAlerts.ps1',
+            'HtmlDeck\host\app\ShinySlack.HtmlDeck.Host.exe',
+            'HtmlDeck\host\app\deck-live.html',
+            'HtmlDeck\host\app\deck-live.js',
+            'HtmlDeck\deck-live.html',
+            'HtmlDeck\deck-live.js',
+            'HtmlDeck\Launch-HTMLDeck-Owner.ps1',
+            'HtmlDeck\Open-HTMLDeck-Prod-v10.ps1',
+            'HtmlDeck\Start-HTMLDeck-Prod-v10.ps1',
+            'HtmlDeck\promotion-v10-stage.json',
+            'HtmlDeck\production-enabled.flag'
+          )
+          foreach($rel in $required){
+            $f=Join-Path $app $rel
+            if(!(Test-Path -LiteralPath $f -PathType Leaf)){throw "Missing INSTALLED file: $rel"}
+            Write-Host "PASS installed: $rel"
+          }
+          if((Get-Content (Join-Path $app 'version.txt') -Raw).Trim() -ne 'v2.7.11'){throw 'Wrong installed version.'}
+          foreach($name in @('deck-live.html','deck-live.js')){
+            $a=(Get-FileHash (Join-Path $app ('HtmlDeck\'+$name)) -Algorithm SHA256).Hash
+            $b=(Get-FileHash (Join-Path $app ('HtmlDeck\host\app\'+$name)) -Algorithm SHA256).Hash
+            if($a -ne $b){throw "Installed HTML deck asset mismatch: $name"}
+          }
+          Get-ChildItem -LiteralPath (Join-Path $app 'HtmlDeck') -Recurse -Filter '*.ps1' | ForEach-Object {
+            $tokens=$null; $errors=$null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName,[ref]$tokens,[ref]$errors)
+            if(@($errors | Where-Object { $null -ne $_ }).Count -gt 0){throw "Installed PowerShell parser failed: $($_.FullName)"}
+          }
+          $launcher=Get-Content -LiteralPath (Join-Path $app 'HtmlDeck\Launch-HTMLDeck-Owner.ps1') -Raw
+          if($launcher -notmatch 'Open-HTMLDeck-Prod-v10'){throw 'Owner launcher does not invoke production bridge.'}
+          Write-Host 'PASS: Installed payload, version, hashes, and PowerShell syntax.'
+
+      - name: Report test limitations
+        shell: pwsh
+        run: |
+          Write-Host 'PASS: Disposable Windows installer smoke test.'
+          Write-Host 'NOTE: Noninteractive CI does not verify WebView2 visual rendering, Slack notifications, or real-time native failover.'
+          Write-Host 'NOTE: No release is published by this workflow.'
