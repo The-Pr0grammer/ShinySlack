@@ -69,7 +69,7 @@ internal sealed class DeckWindow : Form
     private readonly NotifyIcon tray = new();
     private readonly List<Panel> resizeGrips = new();
     private TableLayoutPanel? chromeSurface;
-    private bool framed;
+    private bool framed; // SHINY-HTML-WINDOWS-SNAP-V10.5
     private readonly bool forceFramed = Environment.GetCommandLineArgs().Any(x =>
         string.Equals(x, "--framed", StringComparison.OrdinalIgnoreCase));
     private DateTime logCreationUtc = DateTime.MinValue;
@@ -149,11 +149,11 @@ internal sealed class DeckWindow : Form
         Name = "ShinySlackHTMLDeckProd";
         StartPosition = FormStartPosition.Manual;
         Size = new Size(520, 300);
-        MinimumSize = new Size(390, 64);
-        MaximumSize = new Size(960, 850);
+        MinimumSize = new Size(300, 64);
+        MaximumSize = Size.Empty; // Do not cap Windows Snap target rectangles.
         // Development default: production-like borderless chrome. Tray menu and
         // --framed are recovery paths if a machine dislikes custom resizing.
-        framed = forceFramed;
+        framed = true; // Windows-frame default; frameless remains a tray choice for the session.
         FormBorderStyle = framed ? FormBorderStyle.Sizable : FormBorderStyle.None;
         TopMost = true;
         ShowInTaskbar = true;
@@ -185,6 +185,9 @@ internal sealed class DeckWindow : Form
         FormBorderStyle = framed ? FormBorderStyle.Sizable : FormBorderStyle.None;
         ApplyFrameColor();
         Shown += async (_, _) => await InitializeAsync();
+        HandleCreated += (_, _) => ApplyWindowsCaptionColor();
+        Activated += (_, _) => ApplyWindowsCaptionColor();
+        Deactivate += (_, _) => ApplyWindowsCaptionColor();
         Move += (_, _) => { if (initializedPosition && !duringLayout && WindowState == FormWindowState.Normal) SaveWindow(); };
         ResizeEnd += (_, _) =>
         {
@@ -269,6 +272,7 @@ internal sealed class DeckWindow : Form
         if (framed == value) return;
         framed = value;
         FormBorderStyle = framed ? FormBorderStyle.Sizable : FormBorderStyle.None;
+        ApplyWindowsCaptionColor();
         ClampPosition();
         SaveWindow();
         changed = true;
@@ -282,7 +286,33 @@ internal sealed class DeckWindow : Form
         });
         BackColor = color;
         if (chromeSurface is not null) chromeSurface.BackColor = color;
+
         foreach (var grip in resizeGrips) grip.BackColor = color;
+        ApplyWindowsCaptionColor();
+    }
+    // Windows 11 DWM caption colors. The same caption is requested for both
+    // focused and unfocused states. Unsupported Windows versions keep OS defaults.
+    [DllImport("dwmapi.dll", PreserveSig = true)]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+    private void ApplyWindowsCaptionColor()
+    {
+        if (!framed || !IsHandleCreated) return;
+        string activeTheme = themeOverride ?? theme;
+        string captionHex = activeTheme switch
+        {
+            "retro" => "#adbf8d", "arcade" => "#15214b",
+            "ghost" => "#251b37", _ => "#242038"
+        };
+        string textHex = activeTheme == "retro" ? "#233727" : "#f4ecff";
+        int caption = ColorTranslator.FromHtml(captionHex).ToArgb() & 0x00ffffff;
+        int text = ColorTranslator.FromHtml(textHex).ToArgb() & 0x00ffffff;
+        // DWM COLORREF encodes R in the least significant byte.
+        caption = (caption & 0x0000ff00) | ((caption & 0x00ff0000) >> 16) | ((caption & 0x000000ff) << 16);
+        text = (text & 0x0000ff00) | ((text & 0x00ff0000) >> 16) | ((text & 0x000000ff) << 16);
+        try {
+            DwmSetWindowAttribute(Handle, 35, ref caption, sizeof(int)); // DWMWA_CAPTION_COLOR
+            DwmSetWindowAttribute(Handle, 36, ref text, sizeof(int)); // DWMWA_TEXT_COLOR
+        } catch (DllNotFoundException) { } catch (EntryPointNotFoundException) { }
     }
 
     private void PositionInitial()
@@ -295,13 +325,13 @@ internal sealed class DeckWindow : Form
             using var doc = JsonDocument.Parse(File.ReadAllText(stateFile));
             var obj = doc.RootElement;
             int x = ReadInt(obj, "x", Location.X), y = ReadInt(obj, "y", Location.Y);
-            int w = Math.Clamp(ReadInt(obj, "width", Width), 390, 960);
-            int h = Math.Clamp(ReadInt(obj, "height", Height), 90, 850);
+            int w = Math.Max(300, ReadInt(obj, "width", Width));
+            int h = Math.Max(90, ReadInt(obj, "height", Height));
             Size = new Size(w, h); Location = new Point(x, y);
             var dir = ReadString(obj, "direction", "down"); if (dir is "up" or "down") direction = dir;
             var mode = ReadString(obj, "growth", "auto"); if (mode is "auto" or "once" or "locked") growth = mode;
             if (ReadInt(obj, "manualHeight", 0) > 0) manualHeight = ReadInt(obj, "manualHeight", h);
-            framed = forceFramed || ReadBool(obj, "framed", false);
+            framed = true; // Migrate old frameless preference to the new framed default.
             ClampPosition();
         }
         catch { /* Corrupt dev-only window state does not interrupt the deck. */ }
@@ -738,7 +768,7 @@ internal sealed class DeckWindow : Form
     }
     private void ResizeForContent()
     {
-        if (!initializedPosition || WindowState != FormWindowState.Normal) return;
+        if (!initializedPosition || WindowState != FormWindowState.Normal || framed) return;
         // Native sizing: header 130px, 78px cards with 9px gaps, 24px foot; capped by screen.
         // Locked/once/manual heights use their own viewport; all alerts remain scrollable.
         // Compact deck chrome. Card geometry is still owned entirely by the
