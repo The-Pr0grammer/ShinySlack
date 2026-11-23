@@ -630,11 +630,40 @@ button[data-ss-tip]:hover{
 }
 /* END SHINY-SOUND-PRESETS-CSS-V1 */
 </style>
+<style id="SHINY-DASH-THEME-HOTFIX-27111">
+.ss-theme-switcher{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:10px 0 22px;color:var(--muted);font-size:13px}
+.ss-theme-switcher select{border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--text);padding:9px 12px;min-width:168px;font:600 13px Segoe UI,system-ui,sans-serif}
+.ss-theme-switcher select:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+#ssThemeNotice{font-size:12px}
+html[data-ss-theme="retro"]{color-scheme:light;--bg:#cbd9ae;--card:#c0cfa1;--card2:#adbf8d;--text:#233727;--muted:#445b42;--line:#587158;--cyan:#345b40;--pink:#618357;--good:#285f35;--warn:#815d19;--bad:#b82e37}
+html[data-ss-theme="arcade"]{--bg:#0a1029;--card:#15214b;--card2:#0e1639;--text:#f4f7ff;--muted:#bbc4e7;--line:#4e5da4;--cyan:#54dcff;--pink:#ff56ac;--good:#5dfaa4;--warn:#ffe06e;--bad:#ff6978}
+html[data-ss-theme="ghost"]{--bg:#110e1b;--card:#251b37;--card2:#1a1528;--text:#f4ecff;--muted:#bbaed1;--line:#584570;--cyan:#74e5d9;--pink:#d990ff;--good:#75efb3;--warn:#ffce7d;--bad:#ff718c}
+html[data-ss-theme] body{background:var(--bg);color:var(--text)}
+html[data-ss-theme] .card{background:var(--card);border-color:var(--line);color:var(--text)}
+html[data-ss-theme] .stat,html[data-ss-theme] .channelSummary>div,html[data-ss-theme] .channelRoute{background:var(--card2);border-color:var(--line);color:var(--text)}
+html[data-ss-theme] .activityItem{background:var(--card2);border-top-color:var(--line);border-right-color:var(--line);border-bottom-color:var(--line);color:var(--text)}
+html[data-ss-theme] .activitySource,html[data-ss-theme] .activityMessage{color:var(--text)}
+html[data-ss-theme] .sub,html[data-ss-theme] .activityTime,html[data-ss-theme] .activityMeta{color:var(--muted)}
+html[data-ss-theme="retro"] .ss-activity-card:hover{background:#d9e4c4!important}
+html[data-ss-theme="arcade"] .ss-activity-card:hover{background:#1b2a5a!important}
+html[data-ss-theme="ghost"] .ss-activity-card:hover{background:#2b2040!important}
+</style>
 </head>
 <body>
 <div class="wrap">
   <div class="brand"><div class="logo">S</div><h1>ShinySlack</h1><span id="versionBadge" style="font:12px Consolas,monospace;color:#55d9ff;border:1px solid #2d5363;border-radius:999px;padding:4px 8px">CHECKING · ENGINE V17</span></div>
   <p class="tag">Your Slack. Your sound. Local-only Windows patcher.</p>
+<!-- SHINY-DASH-THEME-HOTFIX-27111: dashboard theme picker, persisted by local authenticated API -->
+<div class="ss-theme-switcher" role="group" aria-label="ShinySlack visual theme">
+  <label for="ssThemeChoice">Theme</label>
+  <select id="ssThemeChoice" aria-label="Dashboard and HTML alert deck theme">
+    <option value="shiny">✨ Shiny</option>
+    <option value="retro">🕹️ Retro</option>
+    <option value="arcade">👾 Arcade</option>
+    <option value="ghost">👻 Ghost Type</option>
+  </select>
+  <span id="ssThemeNotice" role="status" aria-live="polite"></span>
+</div>
 
   <div class="grid">
     <div class="stat"><div class="k">Slack</div><div id="slack" class="v">Checking...</div></div>
@@ -4016,6 +4045,29 @@ $('openDeck').onclick=async()=>{
   }catch(e){show(false,e.message||String(e));}
   finally{b.disabled=false;}
 };
+// SHINY-DASH-THEME-HOTFIX-27111: host follows visual-theme.json, no WebView2 rebuild needed.
+async function ssLoadTheme(){
+  try{
+    const v=await api('/api/visual-theme');
+    const choice=$('ssThemeChoice');
+    if(v && ['shiny','retro','arcade','ghost'].includes(v.theme)){
+      choice.value=v.theme;
+      document.documentElement.dataset.ssTheme=v.theme;
+    }
+  }catch(e){$('ssThemeNotice').textContent='Could not load saved theme';}
+}
+$('ssThemeChoice').addEventListener('change',async e=>{
+  const choice=e.currentTarget,selected=choice.value;
+  const note=$('ssThemeNotice');
+  choice.disabled=true;note.textContent='Saving…';
+  try{
+    const r=await api('/api/visual-theme',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({theme:selected})});
+    document.documentElement.dataset.ssTheme=r.theme;
+    note.textContent='Saved · HTML deck synchronized';
+  }catch(err){note.textContent='Theme not saved';await ssLoadTheme();}
+  finally{choice.disabled=false;}
+});
+ssLoadTheme();
 // SHINY-UPDATE-DIRECT-INSTALLER-UX-V1
 let updateReleaseUrl='';
 let updateInstallerUrl='';

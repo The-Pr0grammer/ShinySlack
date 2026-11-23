@@ -1,5 +1,5 @@
 #ifndef MyAppVersion
-  #define MyAppVersion "2.7.11"
+  #define MyAppVersion "2.7.12"
 #endif
 
 #define MyAppName "ShinySlack"

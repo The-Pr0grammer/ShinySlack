@@ -2295,7 +2295,7 @@ function Convert-ShinyVersion {
     $match =
         [regex]::Match(
             $Text.Trim(),
-            '(?i)^v?(\d+)\.(\d+)\.(\d+)'
+            '(?i)^v?(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?'
         )
 
 
@@ -2304,6 +2304,15 @@ function Convert-ShinyVersion {
     }
 
 
+    if ($match.Groups[4].Success) {
+        return [version](
+            "{0}.{1}.{2}.{3}" -f
+            $match.Groups[1].Value,
+            $match.Groups[2].Value,
+            $match.Groups[3].Value,
+            $match.Groups[4].Value
+        )
+    }
     return [version](
         "{0}.{1}.{2}" -f
         $match.Groups[1].Value,
@@ -2520,34 +2529,77 @@ $listener=$null}}
                 }
                 continue
             }            # SHINY-DASHBOARD-OPEN-DECK-V1
-            if($req.Method -eq 'POST' -and $req.Path -eq '/api/deck/show'){
-                try{
-                    $deckScript = Join-Path $script:Root 'PersistentAlerts.ps1'
-                    if(!(Test-Path -LiteralPath $deckScript)){
-                        throw 'Floating alert deck is not installed.'
-                    }
-                    $deckFull = [IO.Path]::GetFullPath($deckScript)
-                    $running = @(
-                        Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction Stop |
-                        Where-Object {
-                            $_.CommandLine -and
-                            $_.CommandLine.IndexOf('PersistentAlerts.ps1',[StringComparison]::OrdinalIgnoreCase) -ge 0 -and
-                            $_.CommandLine.IndexOf($deckFull,[StringComparison]::OrdinalIgnoreCase) -ge 0
+            # SHINY-DASH-THEME-HOTFIX-27111: authenticated local theme state for dashboard + HTML deck.
+            if($req.Path -eq '/api/visual-theme' -and $req.Method -in @('GET','POST')){
+                try {
+                    $themeFile=Join-Path $script:Root 'visual-theme.json'
+                    $allowed=@('shiny','retro','arcade','ghost')
+                    if($req.Method -eq 'GET'){
+                        $name='shiny'
+                        if(Test-Path -LiteralPath $themeFile -PathType Leaf){
+                            $saved=Get-Content -LiteralPath $themeFile -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
+                            if([string]$saved.theme -in $allowed){$name=[string]$saved.theme}
                         }
-                    )
-                    $requestFile = Join-Path $script:Root 'persistent-alerts-show.request'
-                    [IO.File]::WriteAllText($requestFile,(Get-Date).ToString('o'),(New-Object Text.UTF8Encoding($false)))
-                    if($running.Count -eq 0){
-                        $powershellExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-                        Start-Process -FilePath $powershellExe -ArgumentList ('-NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File "'+$deckFull+'"') -WindowStyle Hidden | Out-Null
+                        Json-Response $client @{ok=$true;theme=$name}
+                    }else{
+                        $data=$req.Body | ConvertFrom-Json -ErrorAction Stop
+                        $name=[string]$data.theme
+                        if($name -cnotin $allowed){
+                            Json-Response $client @{ok=$false;error='Unknown visual theme.'} 400
+                        }else{
+                            # Preserve any other existing visual settings in the same JSON file.
+                            $settings=[pscustomobject]@{theme=$name}
+                            if(Test-Path -LiteralPath $themeFile -PathType Leaf){
+                                $settings=Get-Content -LiteralPath $themeFile -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
+                                if($settings.PSObject.Properties.Name -contains 'theme'){$settings.theme=$name}
+                                else{$settings | Add-Member -NotePropertyName theme -NotePropertyValue $name}
+                            }
+                            $tmp=$themeFile+'.theme-'+[guid]::NewGuid().ToString('N')+'.tmp'
+                            try {
+                                [IO.File]::WriteAllText($tmp,($settings | ConvertTo-Json -Depth 12),(New-Object Text.UTF8Encoding($false)))
+                                if(Test-Path -LiteralPath $themeFile -PathType Leaf){
+                                    [IO.File]::Replace($tmp,$themeFile,($themeFile + ".previous"))
+                                }else{[IO.File]::Move($tmp,$themeFile)}
+                            }finally{Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue}
+                            Json-Response $client @{ok=$true;theme=$name}
+                        }
                     }
-                    Json-Response $client @{ok=$true;requested=$true}
                 }catch{
-                    Write-WebException $_ $rid 'Open alert deck failed'
-                    Json-Response $client @{ok=$false;error='Could not open the floating alert deck.'} 500
+                    Write-WebException $_ $rid 'Visual theme request failed'
+                    Json-Response $client @{ok=$false;error='Could not read or save visual theme.'} 500
                 }
                 continue
             }
+  # SHINY-DASH-OPEN-HTML-RESTORE-27111: restore existing HTML window without ownership promotion.
+  if($req.Method -eq 'POST' -and $req.Path -eq '/api/deck/show'){
+      try {
+          $hostExe=Join-Path $script:Root 'HtmlDeck\host\app\ShinySlack.HtmlDeck.Host.exe'
+          $owner=Join-Path $script:Root 'HtmlDeck\Launch-HTMLDeck-Owner.ps1'
+          $showFile=Join-Path $script:Root 'HtmlDeck-show.request'
+          $hosts=@(Get-CimInstance Win32_Process -Filter "Name='ShinySlack.HtmlDeck.Host.exe'" -ErrorAction Stop)
+          $installed=@($hosts | Where-Object {
+              $_.ExecutablePath -and [string]::Equals([string]$_.ExecutablePath,$hostExe,[StringComparison]::OrdinalIgnoreCase)
+          })
+          if($hosts.Count -ne $installed.Count -or $installed.Count -gt 1){
+              throw 'Ambiguous HTML host process; refusing restore.'
+          }
+          if($installed.Count -eq 1){
+              # Existing host polls this file in Tick() and calls RestoreFromTray().
+              [IO.File]::WriteAllText($showFile,[DateTime]::UtcNow.ToString('o'))
+              Json-Response $client @{ok=$true;requested=$true;mode='restore-existing'}
+          }else{
+              # No host: preserve the existing guarded owner launcher, including native fallback.
+              if(!(Test-Path -LiteralPath $owner -PathType Leaf)){throw 'HTML deck owner launcher is missing.'}
+              $ps=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+              Start-Process -FilePath $ps -ArgumentList ('-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "'+$owner+'" -Start') -WorkingDirectory $script:Root -WindowStyle Hidden -ErrorAction Stop | Out-Null
+              Json-Response $client @{ok=$true;requested=$true;mode='guarded-start'}
+          }
+      }catch{
+          Write-WebException $_ $rid 'Open HTML alert deck failed'
+          Json-Response $client @{ok=$false;error='Could not request the HTML alert deck.'} 500
+      }
+      continue
+  }
             # SHINY-MUTE-FAILSAFE-279-V1
             # Only requests from an open dashboard update this timestamp.
             if($req.Method -eq 'GET' -and $req.Path -eq '/api/status'){

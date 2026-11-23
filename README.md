@@ -2,7 +2,7 @@
 
 **Your Slack. Your sound. Your alerts.**
 
-**Current Windows release: v2.7.11.** Previous v2.7.5 installers remain archived under their original release tag.
+**Current Windows release: v2.7.12.** Previous v2.7.5 installers remain archived under their original release tag.
 
 In v2.7.11, HTML Deck V10.4 is the primary floating deck, supervised by a heartbeat watchdog; the native WinForms deck remains an automatic fallback. The installer includes the WebView2 host and the production bridge.
 
