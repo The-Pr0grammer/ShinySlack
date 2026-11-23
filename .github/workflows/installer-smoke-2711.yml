@@ -100,7 +100,7 @@ jobs:
             if(@($errors | Where-Object { $null -ne $_ }).Count -gt 0){throw "Installed PowerShell parser failed: $($_.FullName)"}
           }
           $launcher=Get-Content -LiteralPath (Join-Path $app 'HtmlDeck\Launch-HTMLDeck-Owner.ps1') -Raw
-          if($launcher -notmatch 'Open-HTMLDeck-Prod-v10'){throw 'Owner launcher does not invoke production bridge.'}
+          if($launcher -notmatch 'Start-HTMLDeck-Prod-v10'){throw 'Owner launcher does not invoke production supervisor.'}
           Write-Host 'PASS: Installed payload, version, hashes, and PowerShell syntax.'
 
       - name: Report test limitations
